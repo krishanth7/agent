@@ -5,7 +5,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
 
 import { BentoCard } from "@/components/ui/BentoCard";
+import { CardError, CardSkeleton } from "@/components/ui/CardState";
 import { STATUS_META } from "@/components/ui/StatusIndicator";
+import type { ResourceStatus } from "@/hooks/useApiResource";
 import { formatINR } from "@/lib/currency";
 import {
   WEEKDAY_LABELS,
@@ -41,7 +43,8 @@ const LEGEND: ReadonlyArray<{ label: string; dot: string }> = [
 ];
 
 export interface TradingCalendarProps {
-  monthAnchor: Date;
+  /** `null` until the backend's reference date establishes the current month. */
+  monthAnchor: Date | null;
   onMonthChange: (next: Date) => void;
   selectedDateKey: string;
   onSelectDate: (dateKey: string) => void;
@@ -50,6 +53,11 @@ export interface TradingCalendarProps {
   getPerformance: (dateKey: string) => DailyTradingPerformance | null;
   /** Status derived from the session and the current daily target. */
   getStatus: (dateKey: string) => DailyTargetStatus | null;
+  /** Load state of the month currently being displayed. */
+  state: ResourceStatus;
+  error?: string | null;
+  offline?: boolean;
+  onRetry?: () => void;
   order?: number;
   className?: string;
 }
@@ -69,9 +77,37 @@ export function TradingCalendar({
   todayKey,
   getPerformance,
   getStatus,
+  state,
+  error,
+  offline,
+  onRetry,
   order,
   className,
 }: TradingCalendarProps) {
+  // Without a reference month there is no grid to draw — not even an empty
+  // one, since which dates exist depends entirely on the month. The month comes
+  // from the backend's reference date, so a failure there leaves us with no
+  // anchor at all; the error must win over the skeleton, otherwise the card
+  // spins forever while the API is down.
+  if (monthAnchor === null) {
+    return (
+      <BentoCard order={order} className={className} ariaLabel="Trading calendar">
+        <h2 className="eyebrow text-ink-secondary">Trading Calendar</h2>
+        {state === "error" ? (
+          <CardError
+            title="Sessions unavailable"
+            message={error ?? null}
+            offline={offline}
+            onRetry={onRetry}
+            className="mt-4 flex-1"
+          />
+        ) : (
+          <CardSkeleton headline="h-5" lines={5} />
+        )}
+      </BentoCard>
+    );
+  }
+
   const weeks = buildCalendarWeeks(monthAnchor);
   const canGoBack = canGoToPreviousMonth(monthAnchor);
   const canGoForward = canGoToNextMonth(monthAnchor);
@@ -108,7 +144,29 @@ export function TradingCalendar({
         </div>
       </div>
 
-      <table className="mt-4 w-full table-fixed border-separate border-spacing-[3px]">
+      {/*
+        The month grid itself is derivable from the date alone, so it stays
+        rendered while sessions load — only the markers are pending. That keeps
+        navigation usable and avoids a full-card layout flash on every month
+        change. A hard failure replaces the grid entirely, because an empty
+        calendar would otherwise read as "no trades" rather than "no data".
+      */}
+      {state === "error" ? (
+        <CardError
+          title="Sessions unavailable"
+          message={error ?? null}
+          offline={offline}
+          onRetry={onRetry}
+          className="mt-4 flex-1"
+        />
+      ) : (
+      <table
+        aria-busy={state === "loading"}
+        className={cn(
+          "mt-4 w-full table-fixed border-separate border-spacing-[3px] transition-opacity duration-200",
+          state === "loading" && "opacity-60",
+        )}
+      >
         <caption className="sr-only">
           {`Daily trading performance for ${monthTitle}. Select a past or current weekday to view its summary. The market is closed on Saturdays and Sundays.`}
         </caption>
@@ -170,6 +228,7 @@ export function TradingCalendar({
           ))}
         </motion.tbody>
       </table>
+      )}
 
       <div className="mt-auto border-t border-hairline pt-3">
         <ul className="flex flex-wrap items-center gap-x-3 gap-y-1.5">

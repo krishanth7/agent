@@ -1,10 +1,20 @@
-# NIFTY Agent — Dashboard (Frontend V1)
+# NIFTY Agent — Dashboard
 
 Monitoring dashboard for an autonomous NIFTY options trading agent.
 
-This repository currently contains **the frontend only**. Every figure on screen
-comes from a local mock module. The interface is architected so those values can
-later be replaced by backend/broker APIs without touching component code.
+The repository now contains **two applications**: a Next.js frontend
+(`src/`) and a FastAPI backend (`backend/`). Every figure on screen is fetched
+from the backend over HTTP — the frontend no longer reads a local mock module.
+
+The backend's own data is still mock data, served from in-memory repositories
+behind a Protocol boundary. **There is no broker connection, no live market
+data, no order placement and no automatic trading.** Every response is tagged
+`"source": "mock"` so a consumer can never mistake it for real money.
+
+| Phase       | Scope                                                      |
+| ----------- | ---------------------------------------------------------- |
+| **Phase 1** | Frontend, design system, bento layout, calendar — mock data |
+| **Phase 2** | FastAPI backend + full frontend integration — mock data     |
 
 ---
 
@@ -131,9 +141,9 @@ Saturdays and Sundays are rendered as non-trading days throughout:
 
 **Implemented**
 
-- Account balance summary (read-only)
-- User-defined monthly target with inline editing and local persistence
-- Automatically derived daily target
+- Account balance summary (read-only), served by the backend
+- User-defined monthly target with inline editing, persisted by the backend
+- Automatically derived daily target (computed server-side, in `Decimal`)
 - Today's progress against the daily target
 - Month-to-date progress against the monthly target
 - Custom September 2026 trading calendar with per-session markers
@@ -142,12 +152,13 @@ Saturdays and Sundays are rendered as non-trading days throughout:
 - Light and dark themes with a persisted, no-flash toggle
 - Responsive 12-column bento layout, 360px → 1920px
 
-**Deliberately not implemented** (out of scope for V1)
+**Deliberately not implemented** (out of scope for Phase 2)
 
-Backend · broker API integration · authentication · order placement ·
-automatic trading · machine learning · training pipelines · database ·
-WebSocket market feed · real account balance retrieval · exchange holiday
-calendar.
+Broker API integration (Angel One / Zerodha / Upstox / Dhan) · broker
+authentication · live prices · option chains · WebSocket market feed · order
+placement or execution · automatic or paper trading · machine learning,
+signals or strategy logic · API authentication · persistent database ·
+Redis / Kafka / Celery · Docker / Kubernetes · exchange holiday calendar.
 
 > The monthly target is a **user-defined goal**, not projected or guaranteed
 > income. The UI language is intentionally framed as *target* and *progress*.
@@ -167,16 +178,31 @@ calendar.
 | Dates      | date-fns                                 |
 | Tooltips   | Radix UI (shadcn-style wrapper)          |
 
-State is plain React state plus small hooks — no Redux. `localStorage` is used
-for exactly two things: the user's monthly target and the colour theme.
+State is plain React state plus small hooks — no Redux, and no data-fetching
+library: `src/lib/api/` is a thin typed wrapper over native `fetch`.
+`localStorage` is now used for exactly one thing, the colour theme. The monthly
+target moved to the backend in Phase 2, because two competing stores would
+eventually disagree and the rounding rule belongs to the domain layer.
 
 ---
 
 ## Getting started
 
+Two processes. The backend must be running on port 8000 — it is the only origin
+the frontend is configured to call, and port 3000 is the only origin the backend
+allows through CORS.
+
 ```bash
+# terminal 1 — backend
+cd backend
+python -m venv .venv && .venv/Scripts/activate   # Linux/macOS: source .venv/bin/activate
+pip install -e ".[dev]"
+uvicorn app.main:app --reload --port 8000        # http://localhost:8000/docs
+
+# terminal 2 — frontend
 npm install
-npm run dev     # http://localhost:3000
+cp .env.example .env.local
+npm run dev                                      # http://localhost:3000
 ```
 
 | Script              | Purpose                        |
@@ -215,10 +241,20 @@ src/
       StatRow.tsx
       ThemeToggle.tsx       Segmented light/dark control
       Tooltip.tsx
+    ui/
+      CardState.tsx         Shared loading skeleton + error/offline state
   hooks/
-    useMonthlyTarget.ts     Persisted target via useSyncExternalStore
+    useApiResource.ts       Generic fetch-with-state hook (loading/ready/error)
+    useMonthlyTarget.ts     Backend-backed target: read, save, revision counter
     useTheme.ts             Persisted theme via useSyncExternalStore
   lib/
+    api/
+      client.ts             The only place that speaks HTTP; ApiError, timeouts
+      types.ts              Wire shapes + snake_case → camelCase transforms
+      account.ts            GET /account/summary
+      targets.ts            GET | PUT /targets/monthly
+      performance.ts        GET /performance/{today,monthly,calendar,:date}
+      agent.ts              GET /agent/status
     currency.ts             INR formatting + input parsing
     targetCalculations.ts   Target maths and status derivation
     dates.ts                Calendar grid + date formatting
@@ -237,10 +273,12 @@ docs/
 
 ## Core logic
 
-**Daily target**
+**Daily target** — computed **once, in the backend**, using `Decimal` with an
+explicit `ROUND_HALF_UP`. The frontend displays the returned value and never
+recomputes it, so there is exactly one implementation of the rule:
 
-```ts
-calculateDailyTarget(monthlyTarget) === Math.round(monthlyTarget / 30)
+```python
+daily_target = (monthly_target / 30).quantize(Decimal(1), ROUND_HALF_UP)
 ```
 
 Fractions below `.5` round down, `.5` and above round up:
@@ -252,10 +290,11 @@ Fractions below `.5` round down, `.5` and above round up:
 | ₹15,000   | ₹500   |
 | ₹20,000   | ₹667   |
 
-> **Production note:** the fixed 30-day denominator is a V1 simplification.
-> It should be replaced with the actual number of remaining NSE trading
-> sessions, which requires the exchange holiday calendar from the backend.
-> Only `ASSUMED_DAYS_PER_MONTH` and `calculateDailyTarget` need to change.
+> **Production note:** the fixed 30-day denominator is a simplification, which
+> is why the response reports `"calculation_mode": "calendar_days_30"`. It
+> should become the number of remaining NSE trading sessions, which requires an
+> exchange holiday calendar. Only the domain calculation changes; the wire
+> contract already carries the mode so clients can tell the two apart.
 
 **Session status** — derived, never stored, so the cards and the calendar can
 never disagree:
@@ -271,20 +310,125 @@ Progress bars clamp at 100% while the displayed percentage is free to exceed it.
 
 ---
 
-## Replacing the mock data
+## Backend — Phase 2
 
-`src/data/mockTradingData.ts` is the only place fake numbers live. Each export
-maps to one future data source:
+A typed, asynchronous FastAPI service. It owns every number the dashboard
+displays, including the notion of "today" — so the calendar, the summary card
+and the daily target can never disagree about which session is current.
 
-| Export                    | Future source                      |
-| ------------------------- | ---------------------------------- |
-| `MOCK_ACCOUNT_SUMMARY`    | Broker funds / margin endpoint     |
-| `MOCK_DAILY_PERFORMANCE`  | Agent trade-journal endpoint       |
-| `MOCK_MARKET_STATUS`      | Exchange session / holiday service |
-| `MOCK_TODAY_KEY`          | `new Date()`                       |
+### Architecture
 
-Components read these through props supplied by `Dashboard.tsx`, so wiring in
-real fetches means changing that one file plus the data module.
+```
+HTTP  →  API route        thin; parses and serialises, no business logic
+      →  Service          orchestration and domain rules
+      →  Repository       a typing.Protocol — the seam a broker slots into
+      →  Mock provider    deterministic in-memory data
+```
+
+Domain models (`app/domain/`) are kept separate from API schemas
+(`app/schemas/`) so the wire format can change without disturbing the maths,
+and vice versa. Dependencies are injected with FastAPI's `Depends`; there is no
+global mutable state, and the repository singletons are `lru_cache`d with an
+explicit `reset_repositories()` used by the test fixtures.
+
+```
+backend/
+  app/
+    main.py               create_app(): lifespan, CORS, middleware, handlers
+    dependencies.py       DI wiring; cached repositories + reset hook
+    api/v1/               health, account, targets, performance, agent routes
+    services/             target, account, performance, agent services
+    domain/               enums, models, Decimal calculations
+    schemas/              Pydantic v2 request/response models
+    repositories/         Protocol interfaces + mock implementations
+    core/                 settings, logging, exceptions, constants, time
+  tests/                  114 tests: unit (domain) + API (httpx ASGITransport)
+  pyproject.toml          deps + ruff/mypy/pytest config — no setup.py
+```
+
+### Tech
+
+Python 3.12 · FastAPI · Uvicorn · Pydantic v2 · pydantic-settings · httpx ·
+pytest + pytest-asyncio · Ruff · mypy (`strict`). Times are timezone-aware and
+centralised on `Asia/Kolkata` via `zoneinfo`.
+
+### Endpoints
+
+All under `/api/v1`. JSON is `snake_case`; money is `Decimal` internally and a
+plain JSON number on the wire.
+
+| Method | Path                       | Purpose                                 |
+| ------ | -------------------------- | --------------------------------------- |
+| GET    | `/health`                  | Liveness, service name, version         |
+| GET    | `/account/summary`         | Available balance, used margin, capital |
+| GET    | `/targets/monthly`         | Monthly target + derived daily target   |
+| PUT    | `/targets/monthly`         | Set the monthly target                  |
+| GET    | `/performance/today`       | The current session                     |
+| GET    | `/performance/monthly`     | Month-to-date totals                    |
+| GET    | `/performance/calendar`    | One month of sessions (`?year=&month=`) |
+| GET    | `/performance/{date}`      | A specific session                      |
+| GET    | `/agent/status`            | Agent state — only `DISABLED` operative |
+
+Interactive docs: `/docs` (Swagger), `/redoc`, `/openapi.json`.
+
+**There are deliberately no `/buy`, `/sell`, `/trade`, `/execute`, `/order` or
+`/exit-all` endpoints, and no `/predict`, `/ai-signal` or `/next-trade`.** The
+service cannot place an order or fabricate a prediction, because the routes to
+do so do not exist.
+
+### Environment
+
+Configuration is `pydantic-settings`; copy `backend/.env.example` to
+`backend/.env`. Real `.env` files are gitignored and must never be committed.
+
+| Variable       | Default                   | Notes                            |
+| -------------- | ------------------------- | -------------------------------- |
+| `ENVIRONMENT`  | `development`             | Hides docs when `production`     |
+| `CORS_ORIGINS` | `http://localhost:3000`   | Explicit list; never `*`         |
+| `LOG_LEVEL`    | `INFO`                    | Structured logs with request IDs |
+
+CORS is scoped to one explicit origin and to `GET, PUT, OPTIONS` only. Every
+response carries an `X-Request-ID`; logs include it for correlation and never
+contain secrets, auth headers or cookies.
+
+### Errors
+
+A single envelope, with no stack traces, file paths or internals leaked:
+
+```json
+{ "error": { "code": "VALIDATION_ERROR", "message": "monthly_target: Input should be greater than 0" } }
+```
+
+### Testing
+
+```bash
+cd backend
+.venv/Scripts/python -m pytest      # 114 tests
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m mypy .      # strict, 53 files
+```
+
+API tests run in-process through `httpx.ASGITransport` — no socket, no port.
+
+### Limitations
+
+Data is mock and in-memory, so **the monthly target resets when the process
+restarts**. The 30-day denominator for the daily target is a simplification;
+the real figure is remaining NSE trading sessions, which needs an exchange
+holiday calendar. There is no authentication, no rate limiting and no database.
+
+### Roadmap — the trading pipeline
+
+Documented, **not implemented**. The intended order, once a broker adapter
+exists:
+
+```
+Model  →  Signal  →  Options Selector  →  Risk Engine  →  Execution Validation  →  Broker Adapter
+```
+
+The **Risk Engine holds veto authority**: it sits before execution validation
+and can reject any proposed trade regardless of model confidence. No signal may
+reach a broker adapter without passing it.
 
 ---
 
@@ -305,11 +449,29 @@ real fetches means changing that one file plus the data module.
 
 ## Verified
 
-`npm run lint`, `npm run typecheck`, and `npm run build` all pass clean, and the
-production build runs with **zero console warnings, errors or exceptions**.
+**Backend** — 114 tests pass, `ruff check` and `ruff format --check` clean,
+`mypy --strict` clean across 53 files. Verified against a live Uvicorn server,
+not only the test suite: OpenAPI schema, `PUT 15000 → 500`, `20000 → 667`,
+`10010 → 334`, `-5000 → 422` with the error envelope and no traceback, and a
+404 probe confirming the order and prediction routes genuinely do not exist.
+
+**Frontend** — `npm run lint`, `npx tsc --noEmit` and `npm run build` all pass
+clean, with **zero console warnings, errors or exceptions** in the browser
+(including no React hydration mismatches — no `new Date()` is evaluated during
+render; the trading date comes from the backend).
+
+**Integration**, checked in a real browser against the running API:
+
+- All six cards render live backend data on load
+- Editing the monthly target to ₹30,000 recalculates the whole dashboard:
+  daily target → ₹1,000, today's +₹420 flips from *Target achieved* to
+  *Below target* with ₹580 remaining, monthly progress → 14.3%, and the
+  calendar re-colours every session against the new target
+- With the backend stopped, all six cards show *unavailable* with offline copy
+  and a Retry button — **never a stale or default figure**, never `NaN` or
+  `undefined` — and Retry recovers every card in place once it is back up
 
 Checked in both themes: layout at 360 / 768 / 1024 / 1280 / 1440px with no
 horizontal overflow, INR formatting, calendar accuracy against the real 2026
-calendar, weekend non-interactivity, target editing and persistence, theme
-persistence across reload and over the OS preference, and edge cases
-(zero / negative / non-numeric / oversized values).
+calendar, weekend non-interactivity, theme persistence across reload and over
+the OS preference, and edge cases (zero / negative / non-numeric / oversized).

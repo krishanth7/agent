@@ -30,8 +30,19 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — never commit real values. The documented templates are the one
+# deliberate exception: they hold no secrets and are needed to set the project up.
 .env*
+!.env.example
+!backend/.env.example
+
+# python / backend
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # vercel
 .vercel

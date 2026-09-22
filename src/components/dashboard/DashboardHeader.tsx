@@ -12,7 +12,14 @@ const MARKET_META: Record<MarketStatus, { label: string; dot: string }> = {
 
 export interface DashboardHeaderProps {
   marketStatus: MarketStatus;
-  date: Date;
+  /**
+   * The trading date, or `null` until the backend reports it.
+   *
+   * Deliberately not defaulted to `new Date()`: the browser's clock is not the
+   * exchange's, and rendering it would both mislead and break hydration (the
+   * server and client would stamp different instants).
+   */
+  date: Date | null;
 }
 
 export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
@@ -53,12 +60,19 @@ export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
           </span>
         </div>
 
-        <time
-          dateTime={date.toISOString()}
-          className="numeric hidden text-[13px] font-medium text-ink-secondary md:block"
-        >
-          {formatCompactDate(date)}
-        </time>
+        {date ? (
+          <time
+            dateTime={date.toISOString()}
+            className="numeric hidden text-[13px] font-medium text-ink-secondary md:block"
+          >
+            {formatCompactDate(date)}
+          </time>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="hidden h-4 w-[5.5rem] animate-pulse rounded bg-surface-sunken md:block"
+          />
+        )}
 
         <ThemeToggle />
       </div>

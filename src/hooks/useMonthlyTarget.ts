@@ -1,81 +1,77 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useState } from "react";
 
-import { DEFAULT_MONTHLY_TARGET } from "@/data/mockTradingData";
-
-const STORAGE_KEY = "nifty-agent:monthly-target";
-
-type Listener = () => void;
-
-const listeners = new Set<Listener>();
-
-function notify(): void {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  // Keep other tabs of the dashboard in sync.
-  window.addEventListener("storage", listener);
-
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("storage", listener);
-  };
-}
-
-function getSnapshot(): number {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return DEFAULT_MONTHLY_TARGET;
-
-    const parsed = Number.parseFloat(raw);
-    return Number.isFinite(parsed) && parsed > 0
-      ? parsed
-      : DEFAULT_MONTHLY_TARGET;
-  } catch {
-    // Private browsing or a blocked storage quota must not break the dashboard.
-    return DEFAULT_MONTHLY_TARGET;
-  }
-}
-
-function getServerSnapshot(): number {
-  return DEFAULT_MONTHLY_TARGET;
-}
+import { ApiError } from "@/lib/api/client";
+import {
+  fetchMonthlyTarget,
+  updateMonthlyTarget,
+  type MonthlyTargetResult,
+} from "@/lib/api/targets";
+import { useApiResource, type ResourceStatus } from "@/hooks/useApiResource";
 
 export interface UseMonthlyTargetResult {
-  monthlyTarget: number;
-  /** Persists a new goal. Returns `false` for values that fail validation. */
-  setMonthlyTarget: (next: number) => boolean;
+  /** `null` until the backend answers, so callers cannot render a guess. */
+  monthlyTarget: number | null;
+  /** Derived server-side; the rounding rule has exactly one implementation. */
+  dailyTarget: number | null;
+  /** How the backend split the month, e.g. `calendar_days_30`. */
+  calculationMode: string | null;
+  status: ResourceStatus;
+  error: string | null;
+  offline: boolean;
+  /** Resolves to an error message to display, or `null` on success. */
+  save: (next: number) => Promise<string | null>;
+  /**
+   * Bumped after every successful save. Downstream resources depend on it so
+   * the calendar and the progress cards re-derive against the new target
+   * without any of them knowing that a target exists to be saved.
+   */
+  revision: number;
+  reload: () => void;
 }
 
 /**
- * The user-defined monthly goal, persisted to localStorage.
+ * The monthly goal, owned by the backend.
  *
- * Backed by `useSyncExternalStore` so the server and the first client render
- * both emit `DEFAULT_MONTHLY_TARGET` — the stored value is adopted immediately
- * after hydration, with no markup mismatch and no state-setting effect.
+ * Phase 1 kept this in localStorage. It now lives behind `/targets/monthly`:
+ * two competing stores would eventually disagree, and the daily-target rounding
+ * rule belongs to the domain layer, not to the browser.
  */
 export function useMonthlyTarget(): UseMonthlyTargetResult {
-  const monthlyTarget = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
+  const [revision, setRevision] = useState(0);
+  const [saved, setSaved] = useState<MonthlyTargetResult | null>(null);
+
+  const load = useCallback(
+    (signal: AbortSignal) => fetchMonthlyTarget({ signal }),
+    [],
   );
+  const resource = useApiResource(load, []);
 
-  const setMonthlyTarget = useCallback((next: number): boolean => {
-    if (!Number.isFinite(next) || next <= 0) return false;
+  // A completed save is newer than whatever the initial GET returned.
+  const current = saved ?? resource.data;
 
+  const save = useCallback(async (next: number): Promise<string | null> => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(Math.round(next)));
-    } catch {
-      return false;
+      const result = await updateMonthlyTarget(next);
+      setSaved(result);
+      setRevision((value) => value + 1);
+      return null;
+    } catch (cause) {
+      if (cause instanceof ApiError) return cause.message;
+      return "That target could not be saved.";
     }
-
-    notify();
-    return true;
   }, []);
 
-  return { monthlyTarget, setMonthlyTarget };
+  return {
+    monthlyTarget: current?.monthlyTarget ?? null,
+    dailyTarget: current?.dailyTarget ?? null,
+    calculationMode: current?.calculationMode ?? null,
+    status: saved ? "ready" : resource.status,
+    error: resource.error,
+    offline: resource.offline,
+    save,
+    revision,
+    reload: resource.reload,
+  };
 }

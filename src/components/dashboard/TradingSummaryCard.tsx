@@ -1,7 +1,9 @@
 import { BentoCard, BentoCardHeader } from "@/components/ui/BentoCard";
+import { CardError, CardSkeleton } from "@/components/ui/CardState";
 import { CurrencyValue } from "@/components/ui/CurrencyValue";
 import { StatRow } from "@/components/ui/StatRow";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
+import type { ResourceStatus } from "@/hooks/useApiResource";
 import { formatINR, formatPercent } from "@/lib/currency";
 import { formatLongDate } from "@/lib/dates";
 import { SESSION_HOURS_LABEL, isWeekend } from "@/lib/market";
@@ -12,10 +14,16 @@ import {
 import type { DailyTradingPerformance } from "@/types/trading";
 
 export interface TradingSummaryCardProps {
-  selectedDate: Date;
+  /** `null` until the backend's reference date is known. */
+  selectedDate: Date | null;
+  /** `null` means "no session recorded", which is distinct from "not loaded". */
   performance: DailyTradingPerformance | null;
-  dailyTarget: number;
+  dailyTarget: number | null;
   isToday: boolean;
+  state: ResourceStatus;
+  error?: string | null;
+  offline?: boolean;
+  onRetry?: () => void;
   order?: number;
   className?: string;
 }
@@ -29,14 +37,55 @@ export function TradingSummaryCard({
   performance,
   dailyTarget,
   isToday,
+  state,
+  error,
+  offline,
+  onRetry,
   order,
   className,
 }: TradingSummaryCardProps) {
-  const longDate = formatLongDate(selectedDate);
-  const closed = isWeekend(selectedDate);
+  const longDate = selectedDate ? formatLongDate(selectedDate) : undefined;
+  const closed = selectedDate !== null && isWeekend(selectedDate);
   const title = isToday ? "Today" : "Selected Session";
 
-  if (!performance) {
+  // The error branch is checked first on purpose. `selectedDate` is derived
+  // from the backend's reference date, so when the API is unreachable it is
+  // also `null` — treating that as "still loading" would leave the card
+  // spinning indefinitely instead of admitting the failure.
+  if (state === "error") {
+    return (
+      <BentoCard
+        variant="secondary"
+        order={order}
+        className={className}
+        ariaLabel="Session summary"
+      >
+        <BentoCardHeader title={title} description={longDate} />
+        <CardError
+          title="Session unavailable"
+          message={error ?? null}
+          offline={offline}
+          onRetry={onRetry}
+        />
+      </BentoCard>
+    );
+  }
+
+  if (state === "loading" || selectedDate === null) {
+    return (
+      <BentoCard
+        variant="secondary"
+        order={order}
+        className={className}
+        ariaLabel="Session summary"
+      >
+        <BentoCardHeader title={title} description={longDate} />
+        <CardSkeleton headline="h-8" lines={4} />
+      </BentoCard>
+    );
+  }
+
+  if (!performance || dailyTarget === null) {
     return (
       <BentoCard
         variant="secondary"
@@ -55,7 +104,11 @@ export function TradingSummaryCard({
         <dl className="mt-auto border-t border-hairline pt-1.5">
           <StatRow
             label="Daily Target"
-            value={<span className="numeric">{formatINR(dailyTarget)}</span>}
+            value={
+              <span className="numeric">
+                {dailyTarget === null ? "—" : formatINR(dailyTarget)}
+              </span>
+            }
           />
         </dl>
       </BentoCard>

@@ -5,18 +5,31 @@ import { PencilLine } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { BentoCard, BentoCardHeader } from "@/components/ui/BentoCard";
+import { CardError, CardSkeleton } from "@/components/ui/CardState";
 import { CurrencyValue } from "@/components/ui/CurrencyValue";
 import { Tooltip } from "@/components/ui/Tooltip";
+import type { ResourceStatus } from "@/hooks/useApiResource";
 import { parseAmountInput } from "@/lib/currency";
-import { ASSUMED_DAYS_PER_MONTH } from "@/lib/targetCalculations";
+import { daysForCalculationMode } from "@/lib/api/targets";
 
 const TRANSITION = { duration: 0.18, ease: [0.22, 0.61, 0.36, 1] } as const;
 
 export interface MonthlyTargetCardProps {
-  monthlyTarget: number;
-  dailyTarget: number;
-  /** Returns `false` when the value was rejected by the persistence layer. */
-  onSave: (next: number) => boolean;
+  /** `null` until the backend answers. */
+  monthlyTarget: number | null;
+  dailyTarget: number | null;
+  /** The backend's split mode; drives the "across N days" caption. */
+  calculationMode: string | null;
+  status: ResourceStatus;
+  loadError?: string | null;
+  offline?: boolean;
+  onRetry?: () => void;
+  /**
+   * Persists the new goal. Resolves to a message to display, or `null` on
+   * success — the backend's own validation text is shown verbatim so the rule
+   * the user broke is never paraphrased incorrectly.
+   */
+  onSave: (next: number) => Promise<string | null>;
   order?: number;
   className?: string;
 }
@@ -28,22 +41,29 @@ export interface MonthlyTargetCardProps {
 export function MonthlyTargetCard({
   monthlyTarget,
   dailyTarget,
+  calculationMode,
+  status,
+  loadError,
+  offline,
+  onRetry,
   onSave,
   order,
   className,
 }: MonthlyTargetCardProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
+  const splitDays = daysForCalculationMode(calculationMode);
 
   useEffect(() => {
     if (isEditing) inputRef.current?.select();
   }, [isEditing]);
 
   function startEditing() {
-    setDraft(String(monthlyTarget));
+    setDraft(monthlyTarget === null ? "" : String(monthlyTarget));
     setError(null);
     setIsEditing(true);
   }
@@ -53,9 +73,11 @@ export function MonthlyTargetCard({
     setError(null);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    // Cheap client-side check first, so an obviously bad value never costs a
+    // round trip. The backend re-validates regardless — this is UX, not a rule.
     const parsed = parseAmountInput(draft);
     if (parsed === null) {
       setError("Enter an amount greater than ₹0.");
@@ -63,13 +85,47 @@ export function MonthlyTargetCard({
       return;
     }
 
-    if (!onSave(parsed)) {
-      setError("That target could not be saved.");
+    setIsSaving(true);
+    const failure = await onSave(parsed);
+    setIsSaving(false);
+
+    if (failure !== null) {
+      setError(failure);
+      inputRef.current?.focus();
       return;
     }
 
     setIsEditing(false);
     setError(null);
+  }
+
+  if (status === "loading") {
+    return (
+      <BentoCard order={order} className={className} ariaLabel="Monthly target">
+        <BentoCardHeader
+          title="Monthly Target"
+          description="Your goal for this month"
+        />
+        <CardSkeleton headline="h-10" lines={2} />
+      </BentoCard>
+    );
+  }
+
+  if (status === "error" || monthlyTarget === null || dailyTarget === null) {
+    return (
+      <BentoCard order={order} className={className} ariaLabel="Monthly target">
+        <BentoCardHeader
+          title="Monthly Target"
+          description="Your goal for this month"
+        />
+        <CardError
+          title="Target unavailable"
+          message={loadError ?? null}
+          offline={offline}
+          onRetry={onRetry}
+        />
+      </BentoCard>
+    );
   }
 
   return (
@@ -98,7 +154,7 @@ export function MonthlyTargetCard({
           {isEditing ? (
             <motion.form
               key="editing"
-              onSubmit={handleSubmit}
+              onSubmit={(event) => void handleSubmit(event)}
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 4 }}
@@ -138,14 +194,16 @@ export function MonthlyTargetCard({
               <div className="mt-3 flex items-center gap-1">
                 <button
                   type="submit"
-                  className="focus-ring rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas transition-opacity duration-150 hover:opacity-85"
+                  disabled={isSaving}
+                  className="focus-ring rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas transition-opacity duration-150 hover:opacity-85 disabled:pointer-events-none disabled:opacity-50"
                 >
-                  Save
+                  {isSaving ? "Saving…" : "Save"}
                 </button>
                 <button
                   type="button"
                   onClick={cancelEditing}
-                  className="focus-ring rounded-lg px-3 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors duration-150 hover:bg-surface-sunken hover:text-ink"
+                  disabled={isSaving}
+                  className="focus-ring rounded-lg px-3 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors duration-150 hover:bg-surface-sunken hover:text-ink disabled:pointer-events-none disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -178,8 +236,8 @@ export function MonthlyTargetCard({
         Splits to{" "}
         <span className="numeric font-medium text-ink-secondary">
           {dailyTarget > 0 ? `₹${dailyTarget.toLocaleString("en-IN")}` : "₹0"}
-        </span>{" "}
-        across {ASSUMED_DAYS_PER_MONTH} days
+        </span>
+        {splitDays === null ? " per day" : ` across ${splitDays} days`}
       </p>
     </BentoCard>
   );

@@ -1,31 +1,18 @@
-import type {
-  DailyTargetStatus,
-  DailyTradingPerformance,
-  PerformanceTotals,
-} from "@/types/trading";
+import type { DailyTargetStatus, PerformanceTotals } from "@/types/trading";
 
 /**
- * Denominator for the daily target in frontend V1.
+ * Presentation-side maths only.
  *
- * PRODUCTION NOTE: replace this fixed 30 with the number of *remaining NSE
- * trading sessions* in the current month, which requires the exchange holiday
- * calendar and an expiry-aware session list from the backend. Intentionally out
- * of scope for this phase — only this constant and `calculateDailyTarget` need
- * to change.
- */
-export const ASSUMED_DAYS_PER_MONTH = 30;
-
-/**
- * Splits a monthly goal into a per-day goal.
+ * The daily target is deliberately *not* computed here. It is derived by the
+ * backend in `Decimal` and delivered alongside the monthly target, so the
+ * rounding rule has exactly one implementation. A second copy in JavaScript
+ * would drift the moment the denominator stops being a flat 30 days, and
+ * float division would disagree with the server at the half-rupee boundary.
  *
- * Rounding rule: fraction `< 0.5` rounds down, `>= 0.5` rounds up — exactly
- * `Math.round` for the non-negative inputs this function accepts.
- * `₹10,000 → ₹333`, `₹10,010 → ₹334`.
+ * What remains are pure display helpers: ratios for progress bars, and the
+ * status classification, which the backend also sends per session but which is
+ * recomputed locally for the *selected* date against the *current* target.
  */
-export function calculateDailyTarget(monthlyTarget: number): number {
-  if (!Number.isFinite(monthlyTarget) || monthlyTarget <= 0) return 0;
-  return Math.round(monthlyTarget / ASSUMED_DAYS_PER_MONTH);
-}
 
 /**
  * Classifies a session against its daily target. The single source of truth for
@@ -66,22 +53,6 @@ export function calculateRemaining(value: number, target: number): number {
 export function calculateWinRate(wins: number, trades: number): number {
   if (!Number.isFinite(wins) || !Number.isFinite(trades) || trades <= 0) return 0;
   return wins / trades;
-}
-
-/** Folds a set of sessions into month-to-date totals. */
-export function aggregatePerformance(
-  sessions: readonly DailyTradingPerformance[],
-): PerformanceTotals {
-  return sessions.reduce<PerformanceTotals>(
-    (totals, session) => ({
-      realizedPnl: totals.realizedPnl + session.realizedPnl,
-      trades: totals.trades + session.trades,
-      wins: totals.wins + session.wins,
-      losses: totals.losses + session.losses,
-      activeSessions: totals.activeSessions + (session.trades > 0 ? 1 : 0),
-    }),
-    { realizedPnl: 0, trades: 0, wins: 0, losses: 0, activeSessions: 0 },
-  );
 }
 
 /** Mean realized P&L per session that actually traded. */

@@ -1,6 +1,8 @@
 import { BentoCard, BentoCardHeader } from "@/components/ui/BentoCard";
+import { CardError, CardSkeleton } from "@/components/ui/CardState";
 import { CurrencyValue } from "@/components/ui/CurrencyValue";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import type { ResourceStatus } from "@/hooks/useApiResource";
 import { formatINR, formatPercent } from "@/lib/currency";
 import {
   calculateProgressRatio,
@@ -9,11 +11,16 @@ import {
 import type { PerformanceTotals } from "@/types/trading";
 
 export interface MonthlyProgressCardProps {
-  monthlyTarget: number;
-  totals: PerformanceTotals;
+  /** `null` until both the target and the month's aggregate have arrived. */
+  monthlyTarget: number | null;
+  totals: PerformanceTotals | null;
   averagePerSession: number;
   /** Label for the period being summarised, e.g. "September 2026". */
   periodLabel: string;
+  state: ResourceStatus;
+  error?: string | null;
+  offline?: boolean;
+  onRetry?: () => void;
   order?: number;
   className?: string;
 }
@@ -27,9 +34,36 @@ export function MonthlyProgressCard({
   totals,
   averagePerSession,
   periodLabel,
+  state,
+  error,
+  offline,
+  onRetry,
   order,
   className,
 }: MonthlyProgressCardProps) {
+  if (state === "loading") {
+    return (
+      <BentoCard order={order} className={className} ariaLabel="Monthly progress">
+        <BentoCardHeader title="Monthly Progress" description={periodLabel} />
+        <CardSkeleton headline="h-9" lines={3} />
+      </BentoCard>
+    );
+  }
+
+  if (state === "error" || totals === null || monthlyTarget === null) {
+    return (
+      <BentoCard order={order} className={className} ariaLabel="Monthly progress">
+        <BentoCardHeader title="Monthly Progress" description={periodLabel} />
+        <CardError
+          title="Progress unavailable"
+          message={error ?? null}
+          offline={offline}
+          onRetry={onRetry}
+        />
+      </BentoCard>
+    );
+  }
+
   const ratio = calculateProgressRatio(totals.realizedPnl, monthlyTarget);
   const remaining = calculateRemaining(totals.realizedPnl, monthlyTarget);
   const hasTarget = monthlyTarget > 0;
