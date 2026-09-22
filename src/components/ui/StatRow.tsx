@@ -13,12 +13,12 @@ export function StatRow({ label, value, className }: StatRowProps) {
   return (
     <div
       className={cn(
-        "flex items-baseline justify-between gap-4 py-2",
+        "flex items-baseline justify-between gap-4 py-1.5",
         className,
       )}
     >
-      <dt className="text-[13px] text-ink-muted">{label}</dt>
-      <dd className="text-[13px] font-medium text-ink">{value}</dd>
+      <dt className="text-[12.5px] text-ink-muted">{label}</dt>
+      <dd className="text-[12.5px] font-medium text-ink">{value}</dd>
     </div>
   );
 }

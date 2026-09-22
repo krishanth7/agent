@@ -1,4 +1,6 @@
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { formatCompactDate } from "@/lib/dates";
+import { SESSION_HOURS_LABEL } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import type { MarketStatus } from "@/types/trading";
 
@@ -17,11 +19,11 @@ export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
   const market = MARKET_META[marketStatus];
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
+    <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-hairline pb-5">
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-ink text-[15px] font-semibold text-canvas"
+          className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-ink text-[15px] font-semibold text-canvas"
         >
           N
         </span>
@@ -29,29 +31,36 @@ export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
           <p className="text-[15px] font-semibold tracking-[-0.01em] text-ink">
             NIFTY Agent
           </p>
-          <p className="text-xs text-ink-muted">Dashboard</p>
+          <p className="eyebrow mt-0.5 text-ink-muted">Dashboard</p>
         </div>
       </div>
 
       <div className="flex items-center gap-3 sm:gap-4">
-        <div className="flex items-center gap-2 rounded-full border border-hairline bg-surface-muted px-3 py-1.5">
+        <div className="flex items-center gap-2.5 rounded-full border border-hairline bg-canvas-raised py-1.5 pl-3 pr-3.5">
           <span
             aria-hidden="true"
-            className={cn("size-1.5 rounded-full", market.dot)}
+            className={cn("size-1.5 shrink-0 rounded-full", market.dot)}
           />
           <span className="text-[13px] font-medium text-ink-secondary">
             {market.label}
           </span>
+          <span
+            aria-hidden="true"
+            className="h-3 w-px shrink-0 bg-hairline-strong"
+          />
+          <span className="numeric whitespace-nowrap text-[11px] text-ink-muted sm:text-[12px]">
+            {SESSION_HOURS_LABEL}
+          </span>
         </div>
-
-        <span aria-hidden="true" className="h-5 w-px bg-hairline" />
 
         <time
           dateTime={date.toISOString()}
-          className="numeric text-[13px] font-medium text-ink-secondary"
+          className="numeric hidden text-[13px] font-medium text-ink-secondary md:block"
         >
           {formatCompactDate(date)}
         </time>
+
+        <ThemeToggle />
       </div>
     </header>
   );

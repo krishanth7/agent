@@ -43,7 +43,7 @@ export function ProgressBar({
       aria-valuenow={percent}
       aria-valuetext={`${percent}% of target`}
       className={cn(
-        "w-full overflow-hidden rounded-full bg-surface-sunken",
+        "w-full overflow-hidden rounded-full bg-track",
         size === "sm" ? "h-1" : "h-1.5",
         className,
       )}

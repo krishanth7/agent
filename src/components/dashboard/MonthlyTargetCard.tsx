@@ -107,7 +107,7 @@ export function MonthlyTargetCard({
                 if (event.key === "Escape") cancelEditing();
               }}
             >
-              <div className="flex items-center gap-2 rounded-inner border border-hairline-strong bg-white/70 px-3 py-2 focus-within:border-ink">
+              <div className="flex items-center gap-2 rounded-inner border border-hairline-strong bg-field px-3 py-2 focus-within:border-ink">
                 <span aria-hidden="true" className="text-lg text-ink-muted">
                   ₹
                 </span>
@@ -164,6 +164,11 @@ export function MonthlyTargetCard({
                 size="xl"
                 className="tracking-[-0.02em] break-words"
               />
+              {/* Framed as a goal — never as projected or guaranteed income. */}
+              <p className="mt-3 max-w-[38ch] text-xs leading-relaxed text-ink-muted">
+                A goal you set for the agent to work towards. It is not
+                projected, expected, or guaranteed income.
+              </p>
             </motion.div>
           )}
         </AnimatePresence>

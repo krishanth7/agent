@@ -4,6 +4,7 @@ import { StatRow } from "@/components/ui/StatRow";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import { formatINR, formatPercent } from "@/lib/currency";
 import { formatLongDate } from "@/lib/dates";
+import { SESSION_HOURS_LABEL, isWeekend } from "@/lib/market";
 import {
   calculateWinRate,
   getDailyTargetStatus,
@@ -32,6 +33,8 @@ export function TradingSummaryCard({
   className,
 }: TradingSummaryCardProps) {
   const longDate = formatLongDate(selectedDate);
+  const closed = isWeekend(selectedDate);
+  const title = isToday ? "Today" : "Selected Session";
 
   if (!performance) {
     return (
@@ -41,17 +44,19 @@ export function TradingSummaryCard({
         className={className}
         ariaLabel="Session summary"
       >
-        <BentoCardHeader
-          title={isToday ? "Today" : "Selected Day"}
-          description={longDate}
-        />
-        <div className="mt-6 flex flex-1 items-center">
-          <p className="text-[13px] text-ink-muted">
-            No session was recorded on this date.
+        <BentoCardHeader title={title} description={longDate} />
+        <div className="mt-6 flex flex-1 items-start">
+          <p className="text-[13px] leading-relaxed text-ink-muted">
+            {closed
+              ? `The market is closed on weekends. Sessions run ${SESSION_HOURS_LABEL}, Monday to Friday.`
+              : "No session was recorded on this date."}
           </p>
         </div>
-        <dl className="mt-auto border-t border-hairline pt-2">
-          <StatRow label="Daily Target" value={formatINR(dailyTarget)} />
+        <dl className="mt-auto border-t border-hairline pt-1.5">
+          <StatRow
+            label="Daily Target"
+            value={<span className="numeric">{formatINR(dailyTarget)}</span>}
+          />
         </dl>
       </BentoCard>
     );
@@ -67,13 +72,10 @@ export function TradingSummaryCard({
       className={className}
       ariaLabel="Session summary"
     >
-      <BentoCardHeader
-        title={isToday ? "Today" : "Selected Day"}
-        description={longDate}
-      />
+      <BentoCardHeader title={title} description={longDate} />
 
       <div className="mt-5">
-        <p className="text-[13px] text-ink-muted">Realized P&amp;L</p>
+        <p className="text-[11px] text-ink-muted">Realized P&amp;L</p>
         <div className="mt-1">
           <CurrencyValue
             value={performance.realizedPnl}
@@ -85,7 +87,7 @@ export function TradingSummaryCard({
         </div>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3">
         <StatusIndicator status={status} />
       </div>
 

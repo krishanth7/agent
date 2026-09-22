@@ -16,6 +16,7 @@ import {
   formatMonthTitle,
   toDateKey,
 } from "@/lib/dates";
+import { SESSION_HOURS_LABEL, isWeekend } from "@/lib/market";
 import { cn } from "@/lib/utils";
 import type { DailyTargetStatus, DailyTradingPerformance } from "@/types/trading";
 
@@ -29,11 +30,14 @@ const WEEKDAY_FULL_NAMES = [
   "Sunday",
 ] as const;
 
-const LEGEND: ReadonlyArray<{ status: DailyTargetStatus; label: string }> = [
-  { status: "achieved", label: "Target met" },
-  { status: "in-progress", label: "Below target" },
-  { status: "loss", label: "Loss" },
-  { status: "not-started", label: "No trade" },
+/** Column indices of Saturday and Sunday in a Monday-first grid. */
+const WEEKEND_COLUMNS = new Set([5, 6]);
+
+const LEGEND: ReadonlyArray<{ label: string; dot: string }> = [
+  { label: "Target met", dot: STATUS_META.achieved.dot },
+  { label: "Below target", dot: STATUS_META["in-progress"].dot },
+  { label: "Loss", dot: STATUS_META.loss.dot },
+  { label: "No trade", dot: STATUS_META["not-started"].dot },
 ];
 
 export interface TradingCalendarProps {
@@ -53,6 +57,9 @@ export interface TradingCalendarProps {
 /**
  * Month view of agent performance. Markers are intentionally quiet — a single
  * dot per session, with the written detail deferred to the summary card.
+ *
+ * Saturdays and Sundays are rendered as non-trading days: the market is closed,
+ * so they can never hold a session and are not selectable.
  */
 export function TradingCalendar({
   monthAnchor,
@@ -73,14 +80,17 @@ export function TradingCalendar({
   return (
     <BentoCard order={order} className={className} ariaLabel="Trading calendar">
       <div className="flex items-center justify-between gap-3">
-        <h2
-          aria-live="polite"
-          className="text-[15px] font-semibold tracking-[-0.01em] text-ink"
-        >
-          {monthTitle}
-        </h2>
+        <div className="min-w-0">
+          <h2 className="eyebrow text-ink-secondary">Trading Calendar</h2>
+          <p
+            aria-live="polite"
+            className="mt-1 text-[15px] font-semibold tracking-[-0.01em] text-ink"
+          >
+            {monthTitle}
+          </p>
+        </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-hairline bg-canvas-raised p-0.5">
           <NavButton
             label="Previous month"
             disabled={!canGoBack}
@@ -98,9 +108,9 @@ export function TradingCalendar({
         </div>
       </div>
 
-      <table className="mt-5 w-full table-fixed border-separate border-spacing-0.5">
+      <table className="mt-4 w-full table-fixed border-separate border-spacing-[3px]">
         <caption className="sr-only">
-          {`Daily trading performance for ${monthTitle}. Select a past or current date to view its summary.`}
+          {`Daily trading performance for ${monthTitle}. Select a past or current weekday to view its summary. The market is closed on Saturdays and Sundays.`}
         </caption>
         <thead>
           <tr>
@@ -108,10 +118,18 @@ export function TradingCalendar({
               <th
                 key={day}
                 scope="col"
-                className="pb-2 text-[11px] font-medium text-ink-muted"
+                className={cn(
+                  "pb-1.5 text-[10.5px] font-semibold tracking-[0.06em] uppercase",
+                  WEEKEND_COLUMNS.has(index)
+                    ? "text-ink-muted/60"
+                    : "text-ink-muted",
+                )}
               >
                 <span aria-hidden="true">{day}</span>
-                <span className="sr-only">{WEEKDAY_FULL_NAMES[index]}</span>
+                <span className="sr-only">
+                  {WEEKDAY_FULL_NAMES[index]}
+                  {WEEKEND_COLUMNS.has(index) ? " (market closed)" : ""}
+                </span>
               </th>
             ))}
           </tr>
@@ -128,6 +146,8 @@ export function TradingCalendar({
                 const dateKey = toDateKey(day);
                 const inMonth = isSameMonth(day, monthAnchor);
                 const isFuture = dateKey > todayKey;
+                const weekend = isWeekend(day);
+                const hasSession = inMonth && !isFuture && !weekend;
 
                 return (
                   <td key={dateKey} className="p-0 align-top">
@@ -136,10 +156,11 @@ export function TradingCalendar({
                       dateKey={dateKey}
                       inMonth={inMonth}
                       isFuture={isFuture}
+                      isWeekend={weekend}
                       isToday={dateKey === todayKey}
                       isSelected={dateKey === selectedDateKey}
-                      status={inMonth && !isFuture ? getStatus(dateKey) : null}
-                      performance={inMonth && !isFuture ? getPerformance(dateKey) : null}
+                      status={hasSession ? getStatus(dateKey) : null}
+                      performance={hasSession ? getPerformance(dateKey) : null}
                       onSelect={onSelectDate}
                     />
                   </td>
@@ -150,17 +171,29 @@ export function TradingCalendar({
         </motion.tbody>
       </table>
 
-      <ul className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline pt-4">
-        {LEGEND.map(({ status, label }) => (
-          <li key={status} className="flex items-center gap-1.5">
+      <div className="mt-auto border-t border-hairline pt-3">
+        <ul className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {LEGEND.map(({ label, dot }) => (
+            <li key={label} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={cn("size-1.5 rounded-full", dot)}
+              />
+              <span className="text-[10.5px] text-ink-muted">{label}</span>
+            </li>
+          ))}
+          <li className="flex items-center gap-1.5">
             <span
               aria-hidden="true"
-              className={cn("size-1.5 rounded-full", STATUS_META[status].dot)}
+              className="size-1.5 rounded-[2px] bg-hairline-strong"
             />
-            <span className="text-[11px] text-ink-muted">{label}</span>
+            <span className="text-[10.5px] text-ink-muted">Market closed</span>
           </li>
-        ))}
-      </ul>
+        </ul>
+        <p className="numeric mt-2 text-[10.5px] text-ink-muted">
+          Sessions run {SESSION_HOURS_LABEL} · closed Sat &amp; Sun
+        </p>
+      </div>
     </BentoCard>
   );
 }
@@ -180,7 +213,7 @@ function NavButton({ label, disabled, onClick, children }: NavButtonProps) {
       disabled={disabled}
       aria-label={label}
       className={cn(
-        "focus-ring grid size-8 place-items-center rounded-lg text-ink-secondary transition-colors duration-150",
+        "focus-ring grid size-7 place-items-center rounded-md text-ink-secondary transition-colors duration-150",
         "hover:bg-surface-sunken hover:text-ink",
         "disabled:pointer-events-none disabled:opacity-30",
       )}
@@ -195,6 +228,7 @@ interface CalendarDayProps {
   dateKey: string;
   inMonth: boolean;
   isFuture: boolean;
+  isWeekend: boolean;
   isToday: boolean;
   isSelected: boolean;
   status: DailyTargetStatus | null;
@@ -202,11 +236,15 @@ interface CalendarDayProps {
   onSelect: (dateKey: string) => void;
 }
 
+const CELL_BASE =
+  "flex h-9 w-full flex-col items-center justify-center rounded-inner sm:h-10";
+
 function CalendarDay({
   day,
   dateKey,
   inMonth,
   isFuture,
+  isWeekend: weekend,
   isToday,
   isSelected,
   status,
@@ -215,22 +253,44 @@ function CalendarDay({
 }: CalendarDayProps) {
   const dayNumber = day.getDate();
 
-  // Padding days and future sessions carry no data and are not selectable.
-  if (!inMonth || isFuture) {
+  // Padding days, weekends and future sessions carry no data and never select.
+  if (!inMonth || weekend || isFuture) {
+    const isClosedTradingDay = inMonth && weekend;
+
     return (
       <div
         aria-hidden={!inMonth}
-        className="flex h-10 flex-col items-center justify-center rounded-inner sm:h-11"
+        title={isClosedTradingDay ? "Market closed" : undefined}
+        className={cn(
+          CELL_BASE,
+          isClosedTradingDay && "bg-surface-sunken",
+          isToday && "ring-1 ring-hairline-strong ring-inset",
+        )}
       >
         <span
           className={cn(
-            "numeric text-[13px]",
-            inMonth ? "text-ink-muted/70" : "text-ink-muted/35",
+            "numeric text-[12px] leading-none",
+            !inMonth && "text-ink-muted/30",
+            inMonth && weekend && "text-ink-muted/55",
+            inMonth && !weekend && "text-ink-muted/70",
           )}
         >
           {dayNumber}
         </span>
-        <span className="mt-1 size-1.5" />
+        <span className="sr-only">
+          {inMonth
+            ? weekend
+              ? ` ${formatAccessibleDate(day)}. Market closed.`
+              : ` ${formatAccessibleDate(day)}. Upcoming session.`
+            : ""}
+        </span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-1 size-1.5",
+            isClosedTradingDay && "rounded-[2px] bg-hairline-strong",
+          )}
+        />
       </div>
     );
   }
@@ -248,17 +308,15 @@ function CalendarDay({
       aria-current={isToday ? "date" : undefined}
       aria-label={`${formatAccessibleDate(day)}. ${pnlLabel}.`}
       className={cn(
-        "focus-ring flex h-10 w-full flex-col items-center justify-center rounded-inner ring-inset transition-all duration-150 sm:h-11",
-        "hover:bg-white/60",
+        CELL_BASE,
+        "focus-ring ring-inset transition-colors duration-150 hover:bg-surface-sunken",
         isToday && !isSelected && "ring-1 ring-hairline-strong",
-        isSelected
-          ? "bg-white shadow-[0_1px_2px_rgba(30,26,22,0.07)] ring-1 ring-ink/25"
-          : null,
+        isSelected && "bg-selected shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-ink/30",
       )}
     >
       <span
         className={cn(
-          "numeric text-[13px] leading-none",
+          "numeric text-[12px] leading-none",
           isToday || isSelected
             ? "font-semibold text-ink"
             : "font-medium text-ink-secondary",
@@ -269,7 +327,7 @@ function CalendarDay({
       <span
         aria-hidden="true"
         className={cn(
-          "mt-1.5 size-1.5 rounded-full",
+          "mt-1 size-1.5 rounded-full",
           meta ? meta.dot : "bg-transparent",
         )}
       />

@@ -1,46 +1,123 @@
 @import "tailwindcss";
 
 /*
- * Warm-neutral institutional palette.
- * The canvas is fixed at #F9EDE3 — card surfaces are translucent warm whites
- * layered over it, so every elevation stays in the same temperature family.
+ * Theme strategy
+ * --------------
+ * Every colour utility resolves to a runtime CSS variable via `@theme inline`,
+ * so flipping the `.dark` class on <html> re-themes the whole dashboard without
+ * duplicating a single utility class in component code.
+ *
+ * Light: warm-neutral institutional palette on the fixed #F9EDE3 canvas.
+ * Dark:  neutral graphite on the fixed #1D1D1D canvas.
  */
-@theme {
-  --color-canvas: #f9ede3;
-  --color-surface: rgba(255, 255, 255, 0.72);
-  --color-surface-muted: rgba(255, 255, 255, 0.48);
-  --color-surface-sunken: rgba(30, 26, 22, 0.035);
+@custom-variant dark (&:where(.dark, .dark *));
 
-  /* Tuned so every text tone clears WCAG AA (4.5:1) on the card surface. */
-  --color-ink: #1e1a16;
-  --color-ink-secondary: #665d54;
-  --color-ink-muted: #7d7267;
+:root {
+  color-scheme: light;
 
-  --color-hairline: rgba(30, 26, 22, 0.08);
-  --color-hairline-strong: rgba(30, 26, 22, 0.16);
+  --canvas: #f9ede3;
+  --canvas-raised: rgba(255, 255, 255, 0.55);
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-muted: rgba(255, 255, 255, 0.48);
+  --surface-sunken: rgba(30, 26, 22, 0.035);
 
-  --color-positive: #2f7d5c;
-  --color-positive-soft: rgba(47, 125, 92, 0.1);
-  --color-negative: #b0453b;
-  --color-negative-soft: rgba(176, 69, 59, 0.1);
-  --color-caution: #8f6220;
-  --color-caution-soft: rgba(143, 98, 32, 0.12);
-  --color-idle: #a89a8b;
+  /* Tuned so every text tone clears WCAG AA (4.5:1) on the card surfaces *and*
+     on the bare canvas, which is the darkest backdrop text ever lands on. */
+  --ink: #1e1a16;
+  --ink-secondary: #665d54;
+  --ink-muted: #726758;
 
-  --radius-card: 22px;
-  --radius-inner: 14px;
+  --hairline: rgba(30, 26, 22, 0.08);
+  --hairline-strong: rgba(30, 26, 22, 0.16);
+
+  --positive: #276b4e;
+  --positive-soft: rgba(39, 107, 78, 0.1);
+  --negative: #b0453b;
+  --negative-soft: rgba(176, 69, 59, 0.1);
+  --caution: #8f6220;
+  --caution-soft: rgba(143, 98, 32, 0.12);
+  --idle: #a89a8b;
+
+  --track: rgba(30, 26, 22, 0.08);
+  --selected-surface: #ffffff;
+  --field: rgba(255, 255, 255, 0.7);
 
   --shadow-card: 0 1px 2px rgba(30, 26, 22, 0.03),
     0 10px 28px -16px rgba(30, 26, 22, 0.14);
   --shadow-card-hover: 0 1px 2px rgba(30, 26, 22, 0.04),
     0 16px 36px -18px rgba(30, 26, 22, 0.2);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --canvas: #1d1d1d;
+  --canvas-raised: rgba(255, 255, 255, 0.04);
+  --surface: rgba(255, 255, 255, 0.055);
+  --surface-muted: rgba(255, 255, 255, 0.032);
+  /* Recessed rather than raised: a lighter tint here would drop the small tile
+     labels below 4.5:1, so the inner tiles sink toward the canvas instead. */
+  --surface-sunken: rgba(0, 0, 0, 0.2);
+
+  /* Verified ≥4.5:1 against the primary card surface over #1D1D1D. */
+  --ink: #f2efeb;
+  --ink-secondary: #b8b0a6;
+  --ink-muted: #9b938a;
+
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-strong: rgba(255, 255, 255, 0.2);
+
+  --positive: #4ca97c;
+  --positive-soft: rgba(76, 169, 124, 0.14);
+  --negative: #e5796d;
+  --negative-soft: rgba(229, 121, 109, 0.14);
+  --caution: #d9a441;
+  --caution-soft: rgba(217, 164, 65, 0.14);
+  --idle: #6f6a64;
+
+  --track: rgba(255, 255, 255, 0.1);
+  --selected-surface: rgba(255, 255, 255, 0.11);
+  --field: rgba(0, 0, 0, 0.25);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 12px 30px -18px rgba(0, 0, 0, 0.6);
+  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.35),
+    0 18px 40px -20px rgba(0, 0, 0, 0.75);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-canvas-raised: var(--canvas-raised);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-selected: var(--selected-surface);
+  --color-field: var(--field);
+
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+
+  --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-caution: var(--caution);
+  --color-caution-soft: var(--caution-soft);
+  --color-idle: var(--idle);
+  --color-track: var(--track);
+
+  --radius-card: 18px;
+  --radius-inner: 12px;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
-
-:root {
-  color-scheme: light;
 }
 
 html {
@@ -48,14 +125,15 @@ html {
 }
 
 body {
-  background-color: var(--color-canvas);
-  color: var(--color-ink);
+  background-color: var(--canvas);
+  color: var(--ink);
   font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
+  transition: background-color 200ms ease, color 200ms ease;
 }
 
 ::selection {
-  background-color: rgba(47, 125, 92, 0.16);
+  background-color: color-mix(in srgb, var(--positive) 22%, transparent);
 }
 
 /* Financial figures must stay column-aligned as values change. */
@@ -65,12 +143,20 @@ body {
   letter-spacing: -0.015em;
 }
 
+/* Institutional micro-label: the small caps used above every card figure. */
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
 .focus-ring {
   outline: none;
 }
 
 .focus-ring:focus-visible {
-  outline: 2px solid var(--color-ink);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
   border-radius: 8px;
 }

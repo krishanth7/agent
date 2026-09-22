@@ -40,8 +40,8 @@ export function BentoCard({
         ease: [0.22, 0.61, 0.36, 1],
       }}
       className={cn(
-        "relative flex flex-col rounded-card border border-hairline p-5 sm:p-6",
-        "transition-shadow duration-200 hover:shadow-card-hover",
+        "relative flex flex-col rounded-card border border-hairline p-5",
+        "transition-[box-shadow,background-color,border-color] duration-200 hover:shadow-card-hover",
         VARIANT_STYLES[variant],
         className,
       )}
@@ -69,11 +69,9 @@ export function BentoCardHeader({
   return (
     <div className={cn("flex items-start justify-between gap-3", className)}>
       <div className="min-w-0">
-        <h2 className="text-[13px] font-medium tracking-[0.01em] text-ink-secondary">
-          {title}
-        </h2>
+        <h2 className="eyebrow text-ink-secondary">{title}</h2>
         {description ? (
-          <p className="mt-0.5 text-xs text-ink-muted">{description}</p>
+          <p className="mt-1 text-xs text-ink-muted">{description}</p>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}

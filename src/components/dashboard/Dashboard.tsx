@@ -75,35 +75,50 @@ export function Dashboard() {
   return (
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={200}>
-        <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
+        <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-9">
           <DashboardHeader marketStatus={MOCK_MARKET_STATUS} date={todayDate} />
 
-          <main className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-6 lg:mt-9 lg:grid-cols-12 lg:gap-5">
+          {/*
+            Bento grid, two rows at desktop width:
+              row 1 — Balance (5) · Monthly Target (4) · Session Summary (3)
+              row 2 — Today's Target (3) · Monthly Progress (4) · Calendar (5)
+            The 5-4-3 / 3-4-5 mirror keeps both rows on the same column rhythm
+            while giving the calendar a deliberately compact footprint.
+          */}
+          <main className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-6 lg:mt-7 lg:grid-cols-12 lg:gap-5">
             <AccountBalanceCard
               account={MOCK_ACCOUNT_SUMMARY}
               order={0}
-              className="md:col-span-3 lg:col-span-7"
+              className="md:col-span-6 lg:col-span-5"
             />
             <MonthlyTargetCard
               monthlyTarget={monthlyTarget}
               dailyTarget={dailyTarget}
               onSave={setMonthlyTarget}
               order={1}
-              className="md:col-span-3 lg:col-span-5"
+              className="md:col-span-3 lg:col-span-4"
+            />
+            <TradingSummaryCard
+              selectedDate={selectedDate}
+              performance={selectedPerformance}
+              dailyTarget={dailyTarget}
+              isToday={selectedDateKey === MOCK_TODAY_KEY}
+              order={2}
+              className="md:col-span-3 lg:col-span-3"
             />
             <DailyTargetCard
               dailyTarget={dailyTarget}
               todayProfit={todayProfit}
-              order={2}
-              className="md:col-span-2 lg:col-span-4"
+              order={3}
+              className="md:col-span-2 lg:col-span-3"
             />
             <MonthlyProgressCard
               monthlyTarget={monthlyTarget}
               totals={totals}
               averagePerSession={averagePerSession}
               periodLabel={formatMonthTitle(todayDate)}
-              order={3}
-              className="md:col-span-4 lg:col-span-8"
+              order={4}
+              className="md:col-span-4 lg:col-span-4"
             />
             <TradingCalendar
               monthAnchor={monthAnchor}
@@ -113,16 +128,8 @@ export function Dashboard() {
               todayKey={MOCK_TODAY_KEY}
               getPerformance={getPerformanceForDate}
               getStatus={getStatus}
-              order={4}
-              className="md:col-span-6 lg:col-span-8"
-            />
-            <TradingSummaryCard
-              selectedDate={selectedDate}
-              performance={selectedPerformance}
-              dailyTarget={dailyTarget}
-              isToday={selectedDateKey === MOCK_TODAY_KEY}
               order={5}
-              className="md:col-span-6 lg:col-span-4"
+              className="md:col-span-6 lg:col-span-5"
             />
           </main>
         </div>

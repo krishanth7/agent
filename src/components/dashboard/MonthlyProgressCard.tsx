@@ -68,22 +68,27 @@ export function MonthlyProgressCard({
         className="mt-5"
       />
 
-      <dl className="mt-auto grid grid-cols-2 gap-3 pt-6 sm:grid-cols-3 sm:gap-4">
-        <div className="rounded-inner bg-surface-sunken px-3.5 py-3">
-          <dt className="text-xs text-ink-muted">Remaining</dt>
+      <dl className="mt-auto grid grid-cols-3 gap-2 pt-6">
+        <div className="min-w-0 rounded-inner bg-surface-sunken px-3 py-2.5">
+          <dt className="text-[10.5px] text-ink-muted">Remaining</dt>
           <dd className="mt-1">
             <CurrencyValue value={remaining} size="sm" />
           </dd>
         </div>
-        <div className="rounded-inner bg-surface-sunken px-3.5 py-3">
-          <dt className="text-xs text-ink-muted">Avg / trading day</dt>
+        <div className="min-w-0 rounded-inner bg-surface-sunken px-3 py-2.5">
+          <dt className="text-[10.5px] text-ink-muted">Avg / session</dt>
           <dd className="mt-1">
-            <CurrencyValue value={Math.round(averagePerSession)} size="sm" tone="auto" showSign />
+            <CurrencyValue
+              value={Math.round(averagePerSession)}
+              size="sm"
+              tone="auto"
+              showSign
+            />
           </dd>
         </div>
-        <div className="col-span-2 rounded-inner bg-surface-sunken px-3.5 py-3 sm:col-span-1">
-          <dt className="text-xs text-ink-muted">Sessions traded</dt>
-          <dd className="numeric mt-1 text-base font-medium text-ink">
+        <div className="min-w-0 rounded-inner bg-surface-sunken px-3 py-2.5">
+          <dt className="text-[10.5px] text-ink-muted">Sessions</dt>
+          <dd className="numeric mt-1 text-[15px] font-semibold text-ink">
             {totals.activeSessions}
           </dd>
         </div>

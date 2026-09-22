@@ -28,17 +28,22 @@ export function AccountBalanceCard({
           decimals={2}
           className="tracking-[-0.02em]"
         />
+        {/* Spelled out so the balance is never mistaken for profit or target. */}
+        <p className="mt-3 max-w-[38ch] text-xs leading-relaxed text-ink-muted">
+          Capital the agent can deploy. This is your account balance — not
+          realized profit, and not a target.
+        </p>
       </div>
 
-      <dl className="mt-auto grid grid-cols-2 gap-3 pt-6 sm:gap-4">
-        <div className="rounded-inner bg-surface-sunken px-3.5 py-3">
-          <dt className="text-xs text-ink-muted">Used margin</dt>
+      <dl className="mt-auto grid grid-cols-2 gap-2 pt-6">
+        <div className="min-w-0 rounded-inner bg-surface-sunken px-3 py-2.5">
+          <dt className="text-[10.5px] text-ink-muted">Used margin</dt>
           <dd className="mt-1">
             <CurrencyValue value={account.usedMargin} size="sm" decimals={2} />
           </dd>
         </div>
-        <div className="rounded-inner bg-surface-sunken px-3.5 py-3">
-          <dt className="text-xs text-ink-muted">Total capital</dt>
+        <div className="min-w-0 rounded-inner bg-surface-sunken px-3 py-2.5">
+          <dt className="text-[10.5px] text-ink-muted">Total capital</dt>
           <dd className="mt-1">
             <CurrencyValue value={account.totalCapital} size="sm" decimals={2} />
           </dd>
