@@ -1,11 +1,14 @@
-# NIFTY Trading Agent API — Phase 2
+# NIFTY Trading Agent API — Phase 3
 
-FastAPI backend serving the dashboard in the repository root.
+FastAPI backend serving the dashboard in the repository root, backed by
+PostgreSQL 16 + TimescaleDB. Schema reference: [`../docs/database.md`](../docs/database.md).
 
-> **All figures this API returns are mock data.** No broker is connected, no
+> **Every figure this API returns is invented.** No broker is connected, no
 > market-data feed is subscribed, no order can be placed, and no automated
-> trading exists. Every payload carries a `source` field stating its
-> provenance so a demo number can never be mistaken for a real balance.
+> trading exists. Persistence makes a number durable, not real. Every payload
+> carries a `source` field, and every seeded row carries
+> `source = 'development_seed'`, so a demo number can never be mistaken for a
+> real balance.
 
 ---
 
@@ -20,15 +23,28 @@ Service             services/*.py      orchestration, validation, mapping
     ↓
 Repository (Protocol)  repositories/interfaces/   the replaceable seam
     ↓
-Mock implementation    repositories/mock/         deterministic demo data
+PostgreSQL             repositories/postgres/     SQLAlchemy 2.x async (default)
+  or Mock              repositories/mock/         in-memory, REPOSITORY_BACKEND=mock
 ```
 
 Pure business rules live in `domain/calculations.py` and are imported by
 services. They are synchronous and side-effect free, which is why they can be
 tested exhaustively without a client, an event loop, or a fixture.
 
-`dependencies.py` is the only module that names a concrete repository. Swapping
-the mocks for PostgreSQL or a broker adapter is an edit there and nowhere else.
+`dependencies.py` is the only module that names a concrete repository, and the
+only place the backend choice is made. Swapping in a broker adapter is an edit
+there and nowhere else.
+
+The backend choice is **configuration, not fallback**. Nothing catches a
+connection error and quietly serves mock figures instead.
+
+### Transactions
+
+One request is one transaction. The session is opened and committed by the
+dependency in `db/session.py`, never by a repository — repositories `flush()`
+when they need a generated key and never `commit()`. Committing per repository
+call would make a multi-write service operation partially durable, which for
+financial records is worse than failing outright.
 
 ### Why the layers are shaped this way
 
@@ -37,7 +53,8 @@ the mocks for PostgreSQL or a broker adapter is an edit there and nowhere else.
 | Repositories are `async` Protocols | Every future implementation does I/O. Making the seam async now means Phase 3 does not have to rewrite call sites. |
 | Calculations are `sync` | They are CPU-only. `async` on a pure function is decoration that buys nothing and costs clarity. |
 | Domain dataclasses separate from Pydantic schemas | The wire contract can change — field renames, versioning, camelCase — without dragging the business rules along. |
-| Money is `Decimal` end to end | Binary floating point cannot represent `0.10`. A figure that drifts a paisa per operation is a defect that compounds silently. |
+| Money is `Decimal` end to end | Binary floating point cannot represent `0.10`. A figure that drifts a paisa per operation is a defect that compounds silently. `NUMERIC(20,4)` in the database. |
+| The engine is opened lazily, not at startup | An unreachable database becomes failing requests with a real error and a healthy `/health/live`, rather than a process that refuses to boot and is hard to diagnose from outside. |
 
 ---
 
@@ -47,7 +64,9 @@ All routes are under `/api/v1`.
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `GET` | `/health` | Service status, version, environment |
+| `GET` | `/health` | Service status, version, environment, database status |
+| `GET` | `/health/live` | Process liveness only — never touches the database |
+| `GET` | `/health/ready` | Readiness — `503` when the database is unreachable |
 | `GET` | `/account/summary` | Available balance, used margin, total capital |
 | `GET` | `/targets/monthly` | Monthly target + derived daily target |
 | `PUT` | `/targets/monthly` | Sets the monthly target, returns the recalculated daily target |
@@ -153,11 +172,31 @@ The read paths answer "no record" differently, on purpose:
 
 ---
 
+## When the database is down
+
+| Endpoint | Behaviour |
+| --- | --- |
+| `GET /health/live` | **200.** The process is alive; that is the entire question. A liveness probe that consults the database gets the container killed for a fault outside the container. |
+| `GET /health` | **503**, body still rendered, `database.state: "down"`. A bare 503 tells an operator nothing about which dependency failed. |
+| `GET /health/ready` | **503.** Not ready to take traffic. |
+| Data endpoints | **503** `DATABASE_UNAVAILABLE`, and never a mock figure in place of a real one. |
+| `GET /account/summary` | **200**, `source: "mock"` — it never touched the database. |
+
+The 503 body is fixed text. The driver's own message is
+`connection to server at "10.0.3.14", port 5432 failed: FATAL: password
+authentication failed for user "trading_agent"` — a host, a port, a username and
+the existence of a password, all in one string. It is logged, never returned;
+`tests/test_error_handling.py` asserts each fragment is absent from the response.
+
+---
+
 ## Setup
 
-Requires Python 3.12+.
+Requires Python 3.12+ and a running PostgreSQL with TimescaleDB.
 
 ```bash
+docker compose up -d        # from the repository root
+
 cd backend
 python -m venv .venv
 
@@ -168,7 +207,13 @@ source .venv/bin/activate
 
 pip install -e ".[dev]"
 cp .env.example .env        # optional; defaults work for local development
+
+python -m alembic upgrade head    # create the schema
+python -m app.db.seed             # optional demo data, development only
 ```
+
+`REPOSITORY_BACKEND=mock` runs the API with no database at all — useful on a
+machine without Docker, and what the unit test suite uses.
 
 Dependencies are managed by `pyproject.toml` alone. There is no
 `requirements.txt`, `Pipfile` or lockfile from another tool to drift out of
@@ -179,11 +224,27 @@ sync with it.
 | Command | Purpose |
 | --- | --- |
 | `uvicorn app.main:app --reload --port 8000` | Development server |
+| `python -m alembic upgrade head` | Apply migrations |
+| `python -m alembic downgrade -1` | Roll back the last migration |
+| `python -m alembic check` | Fail if the models have drifted from the migrations |
+| `python -m app.db.seed` | Load deterministic demo data (development only) |
 | `pytest` | Test suite |
 | `pytest -q --tb=short` | Test suite, compact output |
 | `ruff check .` | Lint |
 | `ruff format --check .` | Formatting check |
-| `mypy app` | Type check (strict) |
+| `mypy app tests` | Type check (strict) |
+
+### Tests
+
+Two suites, one command. `tests/` runs against the mock backend and needs
+nothing installed; `tests/integration/` creates and drops `trading_agent_test`,
+builds its schema by running the **real** migrations, and exercises the
+PostgreSQL path.
+
+If no database is reachable the integration suite **skips**, loudly, with the
+address it tried in the reason. A hard failure would make `pytest` red on a
+machine without Docker, which trains people to ignore red; a silent pass would
+report success for tests that never ran.
 
 API documentation is at `http://localhost:8000/docs` (Swagger),
 `/redoc`, and `/openapi.json`. All three are disabled when
@@ -196,9 +257,16 @@ API documentation is at `http://localhost:8000/docs` (Swagger),
 Settings are typed via pydantic-settings and read from the environment or
 `backend/.env`. See `.env.example` for the full list.
 
-`.env` is gitignored. No secret exists in this phase — there is no broker, no
-database and no authentication — but the loading path is established now so
-credentials have somewhere to live that is not source control.
+Connection settings are supplied as **parts** — `POSTGRES_HOST`, `POSTGRES_PORT`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` — and assembled into a URL by
+`Settings`, rather than read as one pre-built DSN. A password containing `@` or
+`/` breaks a hand-assembled DSN silently; letting the URL type do the escaping
+removes the class of bug. `safe_database_url` is the only form that is ever
+logged or returned, and it masks the password.
+
+`.env` is gitignored. `POSTGRES_PASSWORD` is the first real secret the project
+has — there is still no broker and no authentication — and the loading path
+established in Phase 2 is what it lands in, rather than source control.
 
 CORS origins are explicit and never `*`; the middleware runs with credentials
 enabled, for which the wildcard is invalid.
@@ -221,11 +289,14 @@ broker credentials exist.
 
 ## Current limitations
 
-- All data is mock and deterministic. Nothing reflects a real account.
-- The monthly target lives in process memory. Restarting the server resets it
-  to ₹10,000. Introducing a database purely to persist one integer would be the
-  wrong trade for this phase.
-- The demo journal is pinned to September 2026 so the mock story stays
+- All data is invented. Persistence makes a figure durable, not real — no
+  broker has reported any of it.
+- The account summary is deliberately **not** persisted (§42). A balance sitting
+  in a database reads as authoritative in a way a literal in a mock module does
+  not, and no broker has reported funds.
+- The order, trade, position and option-chain tables exist, are migrated, and
+  are **empty**. They are schema, not behaviour.
+- The seeded journal is pinned to the current month so the demo story stays
   coherent; `get_reference_date()` is the seam where a real clock plugs in.
 - No exchange holiday calendar. The frontend knows only the weekend rule.
 - No authentication. The API assumes a single trusted local user.
@@ -236,14 +307,19 @@ broker credentials exist.
 
 ## Roadmap
 
-Phase 2 exists so these can be added without restructuring:
+Phases 2 and 3 exist so these can be added without restructuring:
 
 ```
-Phase 3   PostgreSQL / TimescaleDB · real trade journal · NSE holiday calendar
+Phase 3   PostgreSQL / TimescaleDB · persistent target · trade journal   ✅ done
 Phase 4   Broker adapter · market data · option-chain ingestion
 Phase 5   Feature engine · ML models · signal engine
 Phase 6   Options selector · risk engine · execution engine · position manager
 ```
+
+Phase 4 writes into tables that already exist. `orders`, `trades`, `positions`,
+`option_contracts` and `option_quotes` were migrated in Phase 3 precisely so
+that connecting a broker is an insert, not a schema redesign under time
+pressure. The NSE holiday calendar is still outstanding.
 
 ### Financial safety architecture
 
@@ -256,7 +332,7 @@ Model → Signal → Options Selector → Risk Engine → Execution Validation �
 
 A model-generated signal must **never** reach a broker adapter directly. The
 risk engine sits in the path and holds veto authority over every order. This is
-documentation only in Phase 2 — none of those components exist yet — but the
+documentation only — none of those components exist yet — but the
 current architecture is shaped so none of them can be short-circuited later.
 
 A `BrokerAdapter` abstraction is deliberately **not** defined yet. Writing an

@@ -7,6 +7,7 @@ from httpx import AsyncClient
 
 
 async def test_health_returns_ok(client: AsyncClient, api: str) -> None:
+    """Under the mock backend there is no database to be unready about."""
     response = await client.get(f"{api}/health")
 
     assert response.status_code == 200
@@ -15,7 +16,51 @@ async def test_health_returns_ok(client: AsyncClient, api: str) -> None:
         "service": "nifty-trading-agent-api",
         "version": "0.2.0",
         "environment": "development",
+        "database": {"state": "not_configured", "latency_ms": None, "error": None},
     }
+
+
+async def test_liveness_never_consults_the_database(
+    client: AsyncClient, api: str
+) -> None:
+    """Liveness must answer from the process alone.
+
+    Asserted structurally — the payload has no `database` key at all — so the
+    contract cannot regress into "alive means the database is up", which is
+    what turns a brief outage into a restart loop.
+    """
+    response = await client.get(f"{api}/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "alive",
+        "service": "nifty-trading-agent-api",
+        "version": "0.2.0",
+    }
+
+
+async def test_readiness_reports_dependency_state(
+    client: AsyncClient, api: str
+) -> None:
+    response = await client.get(f"{api}/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["database"]["state"] == "not_configured"
+
+
+async def test_health_never_leaks_connection_details(
+    client: AsyncClient, api: str
+) -> None:
+    """The least protected route in the system must not describe the topology.
+
+    A guard against a future change that helpfully includes the driver's error
+    text — which routinely carries host, port, database name and username.
+    """
+    body = (await client.get(f"{api}/health")).text.lower()
+
+    for secret in ("password", "postgresql://", "asyncpg", "5432", "localhost"):
+        assert secret not in body, secret
 
 
 async def test_response_carries_a_request_id(client: AsyncClient, api: str) -> None:

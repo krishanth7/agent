@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, request_context_middleware
+from app.db.session import dispose_engine
 
 logger = get_logger(__name__)
 
@@ -35,19 +36,27 @@ field stating its provenance.
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application startup and shutdown.
 
-    Nothing is initialised here. Connection pools, broker sessions and
-    market-data subscriptions belong to the phases that introduce them; opening
-    a pool for a database that does not exist would be ceremony, not
-    architecture.
+    The database engine is *not* opened here. It is created lazily on first
+    use, which means an unreachable database surfaces as a failing request with
+    a real error — and a healthy `/health/live` — rather than as a process that
+    refuses to boot. Startup that hard-fails on a dependency is how a service
+    becomes impossible to diagnose from the outside.
+
+    Shutdown does dispose the pool, so connections are returned to PostgreSQL
+    rather than left for its idle timeout to reap.
     """
-    settings = get_settings()
+    settings: Settings = app.state.settings
     logger.info(
-        "application_started version=%s environment=%s",
+        "application_started version=%s environment=%s backend=%s",
         settings.app_version,
         settings.environment,
+        settings.repository_backend,
     )
-    yield
-    logger.info("application_stopped")
+    try:
+        yield
+    finally:
+        await dispose_engine()
+        logger.info("application_stopped")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -70,6 +79,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
     )
+
+    # Published on app state so dependencies resolve *this* app's settings
+    # rather than the process-wide singleton. Without it, the `settings`
+    # argument above would govern the title and the CORS policy but not the
+    # repository backend, which is exactly the kind of split-brain
+    # configuration that makes a test suite lie.
+    app.state.settings = settings
 
     # Explicit origins, never "*". The wildcard is incompatible with
     # `allow_credentials=True` and would be the wrong default regardless.

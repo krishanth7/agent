@@ -17,6 +17,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Final
 
+from app.domain.enums import DataSource
 from app.domain.models import DailySessionData
 
 #: The dashboard's pinned "today". The mock month is fixed, so the reference
@@ -61,6 +62,8 @@ _BY_DATE: Final = {session.session_date: session for session in _SESSIONS}
 
 class MockPerformanceRepository:
     """Serves the fixed September 2026 demo journal."""
+
+    source = DataSource.MOCK
 
     async def get_session(self, session_date: date) -> DailySessionData | None:
         return _BY_DATE.get(session_date)

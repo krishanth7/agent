@@ -1,0 +1,61 @@
+# Local development infrastructure for the NIFTY Agent backend.
+#
+# Phase 3 introduces exactly one service. Kafka, Redis, Elasticsearch and
+# friends are deliberately absent: nothing in this phase streams, caches or
+# searches, and infrastructure that exists "for later" is infrastructure nobody
+# maintains. Redis becomes justifiable when live market data arrives.
+#
+#   docker compose up -d      start PostgreSQL + TimescaleDB
+#   docker compose stop       stop it, keeping all data
+#   docker compose down -v    stop it and DESTROY the local database volume
+#
+# The credentials below are development defaults, not secrets. They exist so a
+# fresh clone runs with no setup at all. Override every one of them through a
+# root-level `.env` (git-ignored) before pointing this at anything shared.
+
+services:
+  postgres:
+    # TimescaleDB is shipped as a PostgreSQL extension, so the image is a
+    # normal PostgreSQL server with the extension preloaded. Pinned to a major
+    # version rather than `latest-pg17` drifting under us between machines.
+    image: timescale/timescaledb:2.30.1-pg17
+    container_name: nifty_agent_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trading_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-trading_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-trading_agent_dev_password}
+      # Keep the server's own clock in UTC. Exchange-local rendering is the
+      # application's job; a server that silently reinterprets timestamps in
+      # IST would corrupt data the moment it moved to a different host.
+      PGTZ: UTC
+      TZ: UTC
+    ports:
+      # Published on the host so the backend can run outside Docker during
+      # development. Bound to loopback only — this database must never be
+      # reachable from the local network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # A named volume, so `docker compose stop` and `down` preserve the
+      # database. Only `down -v` destroys it.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone returns success while the entrypoint is still
+      # running its bootstrap scripts, so an eager `alembic upgrade head` can
+      # still lose the race. Actually executing a query is the honest check.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-trading_agent} -d ${POSTGRES_DB:-trading_agent} -q && psql -U ${POSTGRES_USER:-trading_agent} -d ${POSTGRES_DB:-trading_agent} -tAc 'SELECT 1' >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      # First start has to initdb the cluster and load TimescaleDB, which is
+      # far slower than every subsequent boot. The retries cover that without
+      # inflating the interval for the common case.
+      retries: 20
+      start_period: 15s
+
+volumes:
+  postgres_data:
+    name: nifty_agent_postgres_data

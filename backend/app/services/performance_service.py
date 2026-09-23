@@ -32,6 +32,7 @@ from app.domain.calculations import (
     get_daily_target_status,
     quantize_money,
 )
+from app.domain.enums import DataSource
 from app.domain.models import DailySessionData, PerformanceTotals
 from app.repositories.interfaces.performance_repository import PerformanceRepository
 from app.repositories.interfaces.target_repository import TargetRepository
@@ -62,7 +63,9 @@ class PerformanceService:
         session = await self._performance.get_session(today)
         if session is None:
             session = _empty_session(today)
-        return self._to_daily_response(session, await self._daily_target())
+        return self._to_daily_response(
+            session, await self._daily_target(), self._performance.source
+        )
 
     async def get_for_date(self, session_date: date) -> DailyPerformanceResponse:
         session = await self._performance.get_session(session_date)
@@ -70,7 +73,9 @@ class PerformanceService:
             raise PerformanceRecordNotFoundError(
                 f"No performance record exists for {session_date.isoformat()}."
             )
-        return self._to_daily_response(session, await self._daily_target())
+        return self._to_daily_response(
+            session, await self._daily_target(), self._performance.source
+        )
 
     async def get_monthly(
         self, year: int | None = None, month: int | None = None
@@ -87,6 +92,7 @@ class PerformanceService:
         monthly_target = (await self._targets.get_monthly_target()).amount
 
         return MonthlyPerformanceResponse(
+            source=self._performance.source,
             year=resolved_year,
             month=resolved_month,
             realized_pnl=quantize_money(totals.realized_pnl),
@@ -108,6 +114,7 @@ class PerformanceService:
         daily_target = await self._daily_target()
 
         return PerformanceCalendarResponse(
+            source=self._performance.source,
             year=year,
             month=month,
             days=[
@@ -132,10 +139,11 @@ class PerformanceService:
 
     @staticmethod
     def _to_daily_response(
-        session: DailySessionData, daily_target: int
+        session: DailySessionData, daily_target: int, source: DataSource
     ) -> DailyPerformanceResponse:
         target = Decimal(daily_target)
         return DailyPerformanceResponse(
+            source=source,
             date=session.session_date,
             realized_pnl=quantize_money(session.realized_pnl),
             daily_target=daily_target,

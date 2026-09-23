@@ -27,10 +27,23 @@ def _isolate_repositories() -> Iterator[None]:
 
 @pytest.fixture
 def settings() -> Settings:
+    """Configuration for the database-free unit suite.
+
+    `repository_backend="mock"` is explicit rather than inherited. These tests
+    cover routing, validation, serialization and the calculation rules — none
+    of which involve SQL — so binding them to a live PostgreSQL would make them
+    slower and able to fail for reasons that have nothing to do with what they
+    assert.
+
+    The PostgreSQL repositories are not left untested by this: they are covered
+    against a real database in `tests/integration`, which is where persistence
+    and restart survival are proven.
+    """
     return Settings(
         environment="development",
         cors_origins=["http://localhost:3000"],
         log_level="WARNING",
+        repository_backend="mock",
     )
 
 

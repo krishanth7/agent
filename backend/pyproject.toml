@@ -15,6 +15,12 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
     "httpx>=0.27.0",
+    # Persistence. SQLAlchemy's asyncio support is an extra rather than a
+    # separate package; asyncpg is the driver, and greenlet is what lets
+    # SQLAlchemy bridge its sync internals into an async call stack.
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
     # Windows ships no IANA time-zone database, so `zoneinfo` cannot resolve
     # "Asia/Kolkata" without this. Required for correct exchange-local dates on
     # any host that lacks a system tzdata.
@@ -70,9 +76,22 @@ ignore = [
     "B008",
 ]
 
+[tool.ruff.lint.isort]
+# `alembic/` is a directory in this project, so ruff would otherwise infer that
+# the `alembic` package being imported is first-party and sort it alongside
+# `app`. It is the third-party migration library.
+known-third-party = ["alembic"]
+
 [tool.ruff.lint.per-file-ignores]
 # Tests legitimately use `assert`, which bandit flags as S101.
 "tests/*" = ["S101"]
+
+# Migration bodies are produced by `alembic revision --autogenerate`, which
+# emits each CHECK constraint as one long SQL string literal. Ruff cannot split
+# a string literal, so E501 there would mean hand-rewrapping generated code
+# after every autogenerate run, forever. Only the line-length rule is relaxed —
+# every other rule still applies to migrations.
+"alembic/versions/*" = ["E501"]
 
 # ---------------------------------------------------------------------------
 # mypy
