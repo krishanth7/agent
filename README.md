@@ -121,22 +121,69 @@ shared layout element, so selection glides between positions in one motion.
 
 ## Market sessions
 
-NSE equity and F&O trade **9:15 AM – 3:30 PM IST, Monday to Friday**. The
-session string appears in the header next to the market status, and again in the
-calendar footer.
+NSE equity and F&O trade **9:15 AM – 3:30 PM IST, Monday to Friday**.
 
-Saturdays and Sundays are rendered as non-trading days throughout:
+The exchange timetable and the holiday calendar are **client-side facts, and
+deliberately not API calls**. Both are published by the exchange ahead of time
+and are the same for everyone, so they are arithmetic — not measurements of this
+account. Making them fetches would mean a database outage could blank the date,
+grey out the calendar, or claim the market was closed during a live session.
+P&L is the opposite and always comes from storage.
 
-- weekend columns are tinted and dimmed, and carry a square "market closed"
-  marker rather than a round session dot
-- weekend cells are plain `<div>`s, not buttons — they can never be selected
-- screen readers get "Saturday, 5 September 2026. Market closed."
-- selecting nothing on a weekend is impossible, but the summary card still has a
-  weekend empty state for completeness
+### The clock
 
-> **Production note:** exchange *holidays* are not derivable client-side. V1
-> only knows the weekend rule. Once the backend exposes the holiday calendar,
-> `isTradingDay()` in `src/lib/market.ts` should consult it too.
+`src/lib/market.ts` derives the current phase from the instant, via
+`Intl.DateTimeFormat` with `timeZone: "Asia/Kolkata"` — so the dashboard shows
+the *exchange's* date and phase regardless of where the browser is:
+
+| Phase | Window | Meaning |
+| --- | --- | --- |
+| `pre-open` | 09:00 – 09:15 | Call auction. No continuous trading yet. |
+| `open` | 09:15 – 15:30 | Regular session. |
+| `post-close` | 15:30 – 16:15 | Closed, but trades can still be modified. |
+| `closed` | otherwise | Outside exchange hours, or a non-trading day. |
+
+Clicking the session-hours label in the header opens the full timetable:
+pre-open order entry (09:00–09:10, with the exchange's randomised close in the
+final two minutes), matching and confirmation (09:10–09:12), the buffer
+(09:12–09:15), the regular session, and both 16:15 post-close cutoffs.
+
+`useMarketClock()` ticks every 15s and re-reads on tab focus. It starts `null`
+and is filled after mount — never `new Date()` during render, which would
+hydrate inconsistently. Callers render a neutral `—` until the first tick:
+"closed" is a claim, and the absence of a clock is not evidence for it.
+
+### The agent execution window
+
+**9:15 AM – 3:00 PM IST** — deliberately 30 minutes narrower than the session.
+The closing period is the least liquid part of the day and no unattended system
+should be opening positions into it. It is shown as its own block in the
+timetable panel, not as a fourth row, because it is a policy this system imposes
+on itself rather than an exchange timing.
+
+Both labels are derived from the `SCHEDULE` constant rather than typed out, so
+the strings and the comparisons driving the status pill cannot drift apart.
+
+### Non-trading days
+
+`src/lib/holidays.ts` bundles the **17 published NSE holidays for 2026**.
+Weekends and holidays are rendered differently on purpose:
+
+- **Weekends** are tinted plain `<div>`s — never selectable, never focusable.
+  They need no explanation, so they get no interaction.
+- **Holidays** are buttons with an amber diamond marker. They answer "why is the
+  14th blank?" themselves, via *both* a hover tooltip and a click popover
+  naming the holiday — the tooltip alone is unreachable on touch, and the
+  popover alone hides the name behind an interaction nobody knows is there.
+  Clicking also selects the date, so the summary card explains the closure.
+- **Muhurat trading** is modelled as its own kind. 8 November 2026 falls on a
+  Sunday: the regular session is closed as it is every Sunday, but the exchange
+  holds a special ceremonial session. Calling it a "holiday" would be wrong in
+  both directions, so it is neither.
+
+The calendar footer states how many holidays fall in the month on view, and says
+plainly when a year is outside the bundled list rather than implying there are
+none.
 
 ---
 
@@ -151,9 +198,13 @@ Saturdays and Sundays are rendered as non-trading days throughout:
 - Automatically derived daily target (computed server-side, in `Decimal`)
 - Today's progress against the daily target
 - Month-to-date progress against the monthly target
-- Custom September 2026 trading calendar with per-session markers
-- Weekend / market-closed handling and NSE session hours
-- Contextual summary for the selected date
+- Custom trading calendar with per-session markers
+- Live IST market clock — phase, session timetable and the agent execution
+  window, all derived client-side
+- Weekend and exchange-holiday handling, with the 2026 NSE holiday calendar
+  bundled as a frontend constant and surfaced by tooltip and popover
+- Contextual summary for the selected date, which names the holiday when the
+  exchange was shut
 - Light and dark themes with a persisted, no-flash toggle
 - Responsive 12-column bento layout, 360px → 1920px
 
@@ -168,7 +219,8 @@ Broker API integration (Angel One / Zerodha / Upstox / Dhan) · broker
 authentication · live prices · option chains · WebSocket market feed · NSE
 scraping · order placement or execution · automatic or paper trading · machine
 learning, signals or strategy logic · API authentication ·
-Redis / Kafka / Celery · Kubernetes · exchange holiday calendar.
+Redis / Kafka / Celery · Kubernetes · a server-side holiday calendar (the 2026
+list is bundled client-side instead, and only 2026 is covered).
 
 The order, execution, trade, position, option-chain and journal tables **exist
 and are empty**. They are the structural landing ground for later phases; a
@@ -250,7 +302,8 @@ src/
   components/
     dashboard/
       Dashboard.tsx         Client orchestrator; owns interactive state
-      DashboardHeader.tsx   Identity, market status + hours, date, theme toggle
+      DashboardHeader.tsx   Identity, market status, IST date, theme toggle
+      MarketStatusPill.tsx  Live phase + the session-timetable popover
       AccountBalanceCard.tsx
       MonthlyTargetCard.tsx
       DailyTargetCard.tsx
@@ -264,12 +317,13 @@ src/
       StatusIndicator.tsx   Status → icon + label + tone mapping
       StatRow.tsx
       ThemeToggle.tsx       Segmented light/dark control
-      Tooltip.tsx
-    ui/
+      Tooltip.tsx           Hover/focus hint (Radix)
+      Popover.tsx           Click-opened detail panel (Radix, focus-trapped)
       CardState.tsx         Shared loading skeleton + error/offline state
   hooks/
     useApiResource.ts       Generic fetch-with-state hook (loading/ready/error)
     useMonthlyTarget.ts     Backend-backed target: read, save, revision counter
+    useMarketClock.ts       IST clock, 15s tick + refresh on tab focus
     useTheme.ts             Persisted theme via useSyncExternalStore
   lib/
     api/
@@ -282,11 +336,10 @@ src/
     currency.ts             INR formatting + input parsing
     targetCalculations.ts   Target maths and status derivation
     dates.ts                Calendar grid + date formatting
-    market.ts               NSE session hours + trading-day rules
+    market.ts               IST clock, session timetable, market phase
+    holidays.ts             Published NSE holiday calendar (2026), no API
     theme.ts                Theme constants + pre-paint init script
     utils.ts                cn()
-  data/
-    mockTradingData.ts      Single source of mock data
   types/
     trading.ts              Domain types
 docs/
@@ -593,10 +646,10 @@ TCP connection arrives as a bare `ConnectionRefusedError` from the event loop's
 socket layer, which the original `SQLAlchemyError` handler never saw, and it
 escaped as a 500 with a traceback. Both shapes are now handled and tested.
 
-**Frontend** — `npm run lint`, `npx tsc --noEmit` and `npm run build` all pass
-clean, with **zero console warnings, errors or exceptions** in the browser
-(including no React hydration mismatches — no `new Date()` is evaluated during
-render; the trading date comes from the backend).
+**Frontend** — `npm run lint`, `npm run typecheck` and `npm run build` all pass
+clean, with **zero console warnings, errors or exceptions** in the browser.
+No hydration mismatch: no `new Date()` is evaluated during render. The clock
+starts `null` on the server and is filled by an effect after mount.
 
 **Integration**, checked in a real browser against the running API:
 
@@ -605,11 +658,30 @@ render; the trading date comes from the backend).
   daily target → ₹1,000, today's +₹420 flips from *Target achieved* to
   *Below target* with ₹580 remaining, monthly progress → 14.3%, and the
   calendar re-colours every session against the new target
-- With the backend stopped, all six cards show *unavailable* with offline copy
-  and a Retry button — **never a stale or default figure**, never `NaN` or
+- With the backend stopped, every *figure* shows as unavailable with offline
+  copy and a Retry button — **never a stale or default figure**, never `NaN` or
   `undefined` — and Retry recovers every card in place once it is back up
+
+**What survives a total API outage**, confirmed with the backend process stopped
+(`fetch` to it refused) rather than simulated:
+
+- the header date — `25 September 2026`, from the IST clock
+- the market phase — `Market Open`, correctly, during the live session; the
+  previous build was hardcoded to *Market Closed* at all times
+- the full session-timetable popover, including the live `11:52 IST` reading
+- the entire calendar grid: weekdays, weekends, and 14 September rendered as a
+  holiday with `aria-label` *"Monday, 14 September 2026. Ganesh Chaturthi.
+  Exchange holiday, no trading session."*
+- clicking it opens the holiday popover **and** selects the date, and the
+  summary card explains *"Ganesh Chaturthi — the exchange is closed, so there is
+  no session to record"* instead of blaming the backend
+- the footer's *"1 exchange holiday this month"*
+
+Layout measured at 1512px: two rows, `5-4-3` over `3-4-5`, with Today's Target,
+Monthly Progress and the Calendar sharing one row exactly as specified.
 
 Checked in both themes: layout at 360 / 768 / 1024 / 1280 / 1440px with no
 horizontal overflow, INR formatting, calendar accuracy against the real 2026
+calendar, all 16 dated holiday weekday labels verified against the true
 calendar, weekend non-interactivity, theme persistence across reload and over
 the OS preference, and edge cases (zero / negative / non-numeric / oversized).

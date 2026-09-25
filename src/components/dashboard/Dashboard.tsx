@@ -12,8 +12,8 @@ import { MonthlyTargetCard } from "@/components/dashboard/MonthlyTargetCard";
 import { TradingCalendar } from "@/components/dashboard/TradingCalendar";
 import { TradingSummaryCard } from "@/components/dashboard/TradingSummaryCard";
 import { TooltipProvider } from "@/components/ui/Tooltip";
-import { MOCK_MARKET_STATUS } from "@/data/mockTradingData";
 import { useApiResource, type ResourceStatus } from "@/hooks/useApiResource";
+import { useMarketClock } from "@/hooks/useMarketClock";
 import { useMonthlyTarget } from "@/hooks/useMonthlyTarget";
 import { fetchAccountSummary } from "@/lib/api/account";
 import {
@@ -47,6 +47,11 @@ function combine(...states: ResourceStatus[]): ResourceStatus {
  * `src/lib/api/` owns how, and the cards own how each state looks.
  */
 export function Dashboard() {
+  // The exchange clock. Independent of the API by construction: the time of day
+  // and the published holiday list are both derivable in the browser, so the
+  // calendar and the market status keep working when nothing else does.
+  const clock = useMarketClock();
+
   const target = useMonthlyTarget();
 
   const loadAccount = useCallback(
@@ -61,9 +66,13 @@ export function Dashboard() {
   );
   const today = useApiResource(loadToday, []);
 
-  // The backend owns the notion of "today" so the calendar, the summary and
-  // the journal can never disagree about which session is the current one.
-  const todayKey = today.data?.date ?? null;
+  // The backend still owns "today" whenever it can answer, so the calendar, the
+  // summary and the journal can never disagree about which session is current.
+  // The IST clock stands in until it does — and keeps standing in if it never
+  // does. That is not a data fallback: the calendar date is arithmetic on an
+  // instant and a time-zone database, not a measurement of an account, and
+  // blanking the dashboard because a database is down would be theatre.
+  const todayKey = today.data?.date ?? clock?.dateKey ?? null;
 
   // `null` overrides mean "follow the backend's reference date"; once the user
   // navigates or selects, their choice takes over. Deriving rather than
@@ -139,11 +148,8 @@ export function Dashboard() {
   );
 
   const calendarState: ResourceStatus =
-    monthAnchor === null ? combine(today.status, "loading") : calendar.status;
+    monthAnchor === null ? "loading" : calendar.status;
 
-  // Never fall back to `new Date()`. The trading date belongs to the exchange,
-  // not to the browser, and substituting the local clock would also produce a
-  // server/client hydration mismatch on every render.
   const todayDate = todayKey ? fromDateKey(todayKey) : null;
   const selectedDate = selectedDateKey ? fromDateKey(selectedDateKey) : null;
   const selectedPerformance = selectedDateKey
@@ -173,7 +179,7 @@ export function Dashboard() {
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={200}>
         <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-9">
-          <DashboardHeader marketStatus={MOCK_MARKET_STATUS} date={todayDate} />
+          <DashboardHeader snapshot={clock} />
 
           {/*
             Bento grid, two rows at desktop width:

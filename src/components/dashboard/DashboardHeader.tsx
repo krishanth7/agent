@@ -1,29 +1,32 @@
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { formatCompactDate } from "@/lib/dates";
-import { SESSION_HOURS_LABEL } from "@/lib/market";
-import { cn } from "@/lib/utils";
-import type { MarketStatus } from "@/types/trading";
+"use client";
 
-const MARKET_META: Record<MarketStatus, { label: string; dot: string }> = {
-  open: { label: "Market Open", dot: "bg-positive" },
-  "pre-open": { label: "Pre-Open", dot: "bg-caution" },
-  closed: { label: "Market Closed", dot: "bg-idle" },
-};
+import { MarketStatusPill } from "@/components/dashboard/MarketStatusPill";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { formatCompactDate } from "@/lib/dates";
+import { getHolidayByKey } from "@/lib/holidays";
+import type { MarketSnapshot } from "@/lib/market";
+import { cn } from "@/lib/utils";
 
 export interface DashboardHeaderProps {
-  marketStatus: MarketStatus;
   /**
-   * The trading date, or `null` until the backend reports it.
+   * Live exchange clock, or `null` for the first paint.
    *
-   * Deliberately not defaulted to `new Date()`: the browser's clock is not the
-   * exchange's, and rendering it would both mislead and break hydration (the
-   * server and client would stamp different instants).
+   * This is the only source of the header's date now. It used to wait for the
+   * backend's reference date, which meant a database outage blanked the date as
+   * well as the figures — and the date is not a figure. Today's date in IST is
+   * derivable from the browser's instant and a time-zone database, so it is.
    */
-  date: Date | null;
+  snapshot: MarketSnapshot | null;
 }
 
-export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
-  const market = MARKET_META[marketStatus];
+export function DashboardHeader({ snapshot }: DashboardHeaderProps) {
+  const holiday = snapshot ? getHolidayByKey(snapshot.dateKey) : null;
+
+  // Built from the IST date key, not from `new Date()`, so the header shows the
+  // exchange's date even when the browser's own calendar has already rolled
+  // over or has not yet.
+  const date = snapshot ? new Date(`${snapshot.dateKey}T00:00:00`) : null;
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-hairline pb-5">
@@ -43,30 +46,29 @@ export function DashboardHeader({ marketStatus, date }: DashboardHeaderProps) {
       </div>
 
       <div className="flex items-center gap-3 sm:gap-4">
-        <div className="flex items-center gap-2.5 rounded-full border border-hairline bg-canvas-raised py-1.5 pl-3 pr-3.5">
-          <span
-            aria-hidden="true"
-            className={cn("size-1.5 shrink-0 rounded-full", market.dot)}
-          />
-          <span className="text-[13px] font-medium text-ink-secondary">
-            {market.label}
-          </span>
-          <span
-            aria-hidden="true"
-            className="h-3 w-px shrink-0 bg-hairline-strong"
-          />
-          <span className="numeric whitespace-nowrap text-[11px] text-ink-muted sm:text-[12px]">
-            {SESSION_HOURS_LABEL}
-          </span>
-        </div>
+        <MarketStatusPill snapshot={snapshot} />
 
-        {date ? (
-          <time
-            dateTime={date.toISOString()}
-            className="numeric hidden text-[13px] font-medium text-ink-secondary md:block"
+        {date && snapshot ? (
+          <Tooltip
+            side="bottom"
+            label={
+              holiday
+                ? `${holiday.description} — ${holiday.kind === "muhurat" ? "special session" : "exchange holiday"}`
+                : `Trading date, ${snapshot.isTradingDay ? "a scheduled session" : "no session scheduled"}`
+            }
           >
-            {formatCompactDate(date)}
-          </time>
+            <time
+              dateTime={snapshot.dateKey}
+              className={cn(
+                "numeric hidden cursor-default text-[13px] font-medium md:block",
+                holiday?.kind === "holiday"
+                  ? "text-caution"
+                  : "text-ink-secondary",
+              )}
+            >
+              {formatCompactDate(date)}
+            </time>
+          </Tooltip>
         ) : (
           <span
             aria-hidden="true"

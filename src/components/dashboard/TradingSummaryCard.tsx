@@ -5,7 +5,8 @@ import { StatRow } from "@/components/ui/StatRow";
 import { StatusIndicator } from "@/components/ui/StatusIndicator";
 import type { ResourceStatus } from "@/hooks/useApiResource";
 import { formatINR, formatPercent } from "@/lib/currency";
-import { formatLongDate } from "@/lib/dates";
+import { formatLongDate, toDateKey } from "@/lib/dates";
+import { getHolidayByKey } from "@/lib/holidays";
 import { SESSION_HOURS_LABEL, isWeekend } from "@/lib/market";
 import {
   calculateWinRate,
@@ -45,8 +46,51 @@ export function TradingSummaryCard({
   className,
 }: TradingSummaryCardProps) {
   const longDate = selectedDate ? formatLongDate(selectedDate) : undefined;
-  const closed = selectedDate !== null && isWeekend(selectedDate);
   const title = isToday ? "Today" : "Selected Session";
+
+  // Why the exchange was shut, if it was — answered entirely on the client
+  // from the weekday and the published holiday list. Neither fact is a
+  // measurement, so neither needs the API to be reachable.
+  const holiday = selectedDate ? getHolidayByKey(toDateKey(selectedDate)) : null;
+  const closedReason: string | null = !selectedDate
+    ? null
+    : holiday?.kind === "holiday"
+      ? `${holiday.description} — the exchange is closed, so there is no session to record.`
+      : isWeekend(selectedDate)
+        ? `The market is closed on weekends. Sessions run ${SESSION_HOURS_LABEL}, Monday to Friday.`
+        : null;
+
+  // A closed exchange is settled before any request is made, so this branch
+  // outranks both the error and the loading states: retrying a fetch cannot
+  // change the fact that 14 August was a holiday. Showing "Session
+  // unavailable" here would blame the backend for the calendar.
+  if (closedReason) {
+    return (
+      <BentoCard
+        variant="secondary"
+        order={order}
+        className={className}
+        ariaLabel="Session summary"
+      >
+        <BentoCardHeader title={title} description={longDate} />
+        <div className="mt-6 flex flex-1 items-start">
+          <p className="text-[13px] leading-relaxed text-ink-muted">
+            {closedReason}
+          </p>
+        </div>
+        <dl className="mt-auto border-t border-hairline pt-1.5">
+          <StatRow
+            label="Daily Target"
+            value={
+              <span className="numeric">
+                {dailyTarget === null ? "—" : formatINR(dailyTarget)}
+              </span>
+            }
+          />
+        </dl>
+      </BentoCard>
+    );
+  }
 
   // The error branch is checked first on purpose. `selectedDate` is derived
   // from the backend's reference date, so when the API is unreachable it is
@@ -96,9 +140,7 @@ export function TradingSummaryCard({
         <BentoCardHeader title={title} description={longDate} />
         <div className="mt-6 flex flex-1 items-start">
           <p className="text-[13px] leading-relaxed text-ink-muted">
-            {closed
-              ? `The market is closed on weekends. Sessions run ${SESSION_HOURS_LABEL}, Monday to Friday.`
-              : "No session was recorded on this date."}
+            No session was recorded on this date.
           </p>
         </div>
         <dl className="mt-auto border-t border-hairline pt-1.5">

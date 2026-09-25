@@ -1,9 +1,10 @@
 /**
  * Domain types for the NIFTY Options Agent dashboard.
  *
- * Every shape here is designed to be satisfied later by a broker/backend API
- * response without changing component code. Frontend V1 fulfils them with mock
- * data from `src/data/mockTradingData.ts`.
+ * Every shape here is satisfied by a `/api/v1` response; nothing in this file
+ * has a mock counterpart any more. Exchange-session state is deliberately
+ * absent — a market phase is derived from the clock in `src/lib/market.ts`,
+ * not measured by the backend, so it has no place among the stored shapes.
  */
 
 /** Snapshot of the trading account. Sourced from a broker funds API in production. */
@@ -36,8 +37,6 @@ export type DailyTargetStatus =
   | "in-progress"
   | "achieved"
   | "loss";
-
-export type MarketStatus = "open" | "closed" | "pre-open";
 
 /** Aggregate of realized performance across a set of sessions. */
 export interface PerformanceTotals {
