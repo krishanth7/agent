@@ -5,6 +5,7 @@ import { MotionConfig } from "motion/react";
 import { useCallback, useMemo, useState } from "react";
 
 import { AccountBalanceCard } from "@/components/dashboard/AccountBalanceCard";
+import { BrokerStatusCard } from "@/components/dashboard/BrokerStatusCard";
 import { DailyTargetCard } from "@/components/dashboard/DailyTargetCard";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { MonthlyProgressCard } from "@/components/dashboard/MonthlyProgressCard";
@@ -182,11 +183,16 @@ export function Dashboard() {
           <DashboardHeader snapshot={clock} />
 
           {/*
-            Bento grid, two rows at desktop width:
+            Bento grid, three rows at desktop width:
               row 1 — Balance (5) · Monthly Target (4) · Session Summary (3)
-              row 2 — Today's Target (3) · Monthly Progress (4) · Calendar (5)
-            The 5-4-3 / 3-4-5 mirror keeps both rows on the same column rhythm
-            while giving the calendar a deliberately compact footprint.
+              row 2 — Today's Target (3) · Monthly Progress (4) ┐
+              row 3 — Broker (7) ────────────────────────────── ┴ Calendar (5)
+            The 5-4-3 rhythm of row 1 is mirrored by 3-4-5 in row 2, and the
+            broker card takes the 3+4 columns back as a single 7 beneath them.
+            The calendar spans both lower rows rather than gaining a seventh
+            neighbour: it is the tallest thing here, so giving it the height is
+            free, and the alternative — a full-width broker strip — would stretch
+            a two-field summary across twelve columns of empty space.
           */}
           <main className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-6 lg:mt-7 lg:grid-cols-12 lg:gap-5">
             <AccountBalanceCard
@@ -265,7 +271,11 @@ export function Dashboard() {
               offline={calendar.offline || today.offline}
               onRetry={reloadCalendar}
               order={5}
-              className="md:col-span-6 lg:col-span-5"
+              className="md:col-span-6 lg:col-span-5 lg:row-span-2"
+            />
+            <BrokerStatusCard
+              order={6}
+              className="md:col-span-6 lg:col-span-7"
             />
           </main>
         </div>

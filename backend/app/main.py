@@ -1,8 +1,13 @@
 """FastAPI application factory.
 
-Phase 2 scope: this service exposes read models for the dashboard and a single
-writable setting (the monthly target). It connects to no broker, subscribes to
-no market-data feed, and has no order path of any kind.
+Current scope: this service exposes read models for the dashboard and a single
+writable setting (the monthly target). It has no order path of any kind — not a
+disabled one, an absent one.
+
+A broker connection is now possible but is off by default and read-only. Nothing
+here establishes it at startup: `angel_one_enabled` must be set, credentials must
+be present, and a session is created only when something asks for broker data.
+Booting must not cause an outbound call to a broker.
 """
 
 from __future__ import annotations
@@ -19,16 +24,20 @@ from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, request_context_middleware
 from app.db.session import dispose_engine
+from app.services.broker_service import BrokerService
 
 logger = get_logger(__name__)
 
 _DESCRIPTION = """
 Backend foundation for the NIFTY Options Trading Agent dashboard.
 
-**All trading and account figures served by this API are mock data.**
-No broker is connected, no market-data feed is subscribed, no orders can be
-placed, and no automated trading exists. Every payload carries a `source`
-field stating its provenance.
+**No orders can be placed through this API, and no automated trading exists.**
+There is no order endpoint to disable — none is defined. Broker access is
+read-only and off unless explicitly configured.
+
+Account and performance figures are mock data. Every payload carries a `source`
+field stating its provenance, so a mock figure can never be mistaken for a live
+one; check it rather than assuming.
 """.strip()
 
 
@@ -43,7 +52,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     becomes impossible to diagnose from the outside.
 
     Shutdown does dispose the pool, so connections are returned to PostgreSQL
-    rather than left for its idle timeout to reap.
+    rather than left for its idle timeout to reap. The broker's HTTP pool is
+    closed for the same reason — but note what shutdown deliberately does *not*
+    do: it does not log out of the broker. A process restarting in five seconds
+    should keep a token that is valid until midnight, and discarding it would
+    burn a login against a one-per-second limit for nothing.
     """
     settings: Settings = app.state.settings
     logger.info(
@@ -55,6 +68,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Read off app state rather than held in a variable: the service is
+        # created lazily by the first request that needs it, so at startup there
+        # is nothing here to close.
+        broker_service: BrokerService | None = getattr(
+            app.state, "broker_service", None
+        )
+        if broker_service is not None:
+            await broker_service.aclose()
         await dispose_engine()
         logger.info("application_stopped")
 

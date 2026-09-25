@@ -49,6 +49,7 @@ from app.repositories.postgres.performance_repository import (
 from app.repositories.postgres.target_repository import PostgresTargetRepository
 from app.services.account_service import AccountService
 from app.services.agent_service import AgentService
+from app.services.broker_service import BrokerService
 from app.services.performance_service import PerformanceService
 from app.services.target_service import TargetService
 
@@ -181,7 +182,33 @@ def get_agent_service() -> AgentService:
     return AgentService()
 
 
+def get_broker_service(request: Request, settings: SettingsDep) -> BrokerService:
+    """The app's single `BrokerService`, created on first request.
+
+    CACHED ON APP STATE, NOT IN AN `lru_cache`. The mock singletons above are
+    process-global and need `reset_repositories()` to stop one test leaking into
+    the next. This one is stored on the app, so a test that builds a second app
+    with different settings gets its own service for free, and a test that
+    builds a fresh app cannot inherit a session from a previous one.
+
+    The identity check on `settings` is belt and braces: an app's settings object
+    does not change, so it should always hold. If it ever does not, rebuilding is
+    the safe direction — a service holding another configuration's credentials is
+    the failure worth preventing.
+
+    Why cached at all: the service owns the broker session, and a fresh instance
+    per request would mean a fresh login per request against an endpoint that
+    permits one per second. See `BrokerService`.
+    """
+    service: BrokerService | None = getattr(request.app.state, "broker_service", None)
+    if service is None or service.settings is not settings:
+        service = BrokerService(settings)
+        request.app.state.broker_service = service
+    return service
+
+
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 TargetServiceDep = Annotated[TargetService, Depends(get_target_service)]
 PerformanceServiceDep = Annotated[PerformanceService, Depends(get_performance_service)]
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
+BrokerServiceDep = Annotated[BrokerService, Depends(get_broker_service)]

@@ -112,6 +112,26 @@ How it works:
   recess (`rgba(0,0,0,0.2)`) rather than a lighter tint, because a lighter tint
   drops the 10.5px tile labels below 4.5:1.
 
+### Glass surfaces
+
+Popovers, tooltips and the broker card share one `.glass-panel` utility: a
+**20% fill over a fully blurred backdrop** (`backdrop-filter: blur(32px)
+saturate(180%)`).
+
+- **The blur is load-bearing, not decoration.** A 20% tint on its own is
+  unreadable over arbitrary content — over a calendar grid it would sit on top
+  of digits and hairlines. Blurring first reduces the backdrop to a smooth
+  local average, which a 20% tint can then shift far enough to carry text.
+- **Dark mode tints dark, not white.** `rgba(20,20,20,0.2)`, because a white
+  tint over `#1D1D1D` reads as fog and drops body text below 4.5:1.
+- **Where the effect is unsupported, it is traded away rather than degraded.**
+  An `@supports not` rule swaps in a near-opaque fill; 20% with no blur is not
+  a lesser version of this, it is an unreadable one.
+- **No arrows on any glass surface.** An SVG arrow cannot inherit
+  `backdrop-filter`, so it would render as an opaque triangle pinned to a
+  translucent panel — and no fixed fill can match, because glass takes its
+  apparent colour from whatever is behind it.
+
 The toggle itself is a two-position segmented track rather than a single
 morphing icon — the user can see both states and which one is active, so it
 reads as an explicit setting instead of a mystery-meat button. The thumb is a
@@ -213,14 +233,28 @@ none.
 - Database health reporting, with a 503 — never a fabricated figure — when the
   data store is unreachable
 
+- **Angel One SmartAPI foundation — read-only, and off by default.** A broker
+  adapter behind a `Protocol`, TOTP login with IST-midnight session expiry, a
+  typed error taxonomy, a historical-range planner, a tested websocket client,
+  and two `GET` endpoints reporting whether a broker is connected. Full
+  reference: **[`docs/angel-one.md`](docs/angel-one.md)**
+- Broker status card on the dashboard, stating the read-only guarantee outright
+  rather than leaving it to be inferred from the absence of a trade button
+
 **Deliberately not implemented** (out of scope for Phase 3)
 
-Broker API integration (Angel One / Zerodha / Upstox / Dhan) · broker
-authentication · live prices · option chains · WebSocket market feed · NSE
-scraping · order placement or execution · automatic or paper trading · machine
-learning, signals or strategy logic · API authentication ·
-Redis / Kafka / Celery · Kubernetes · a server-side holiday calendar (the 2026
-list is bundled client-side instead, and only 2026 is covered).
+Order placement or execution · automatic or paper trading · a rate limiter for
+the SmartAPI endpoints · an instrument master download · a live feed
+subscription or any consumer of one · scheduled broker polling · other brokers
+(Zerodha / Upstox / Dhan) · NSE scraping · machine learning, signals or strategy
+logic · API authentication · Redis / Kafka / Celery · Kubernetes · a
+server-side holiday calendar (the 2026 list is bundled client-side instead, and
+only 2026 is covered).
+
+Connecting a broker **does not make the dashboard's figures real**. Every
+performance number still carries `source: "mock"` or `source:
+"development_seed"`, and it keeps carrying it with a live session attached —
+there is a test that asserts exactly that.
 
 The order, execution, trade, position, option-chain and journal tables **exist
 and are empty**. They are the structural landing ground for later phases; a
@@ -414,8 +448,10 @@ backend/
   app/
     main.py               create_app(): lifespan, CORS, middleware, handlers
     dependencies.py       DI wiring; backend selection, per-request session
-    api/v1/               health, account, targets, performance, agent routes
-    services/             target, account, performance, agent services
+    api/v1/               health, account, targets, performance, agent, broker
+    services/             target, account, performance, agent, broker services
+    brokers/              BrokerAdapter Protocol, models, errors
+      angel_one/          client, auth, mapper, adapter, history, feed
     domain/               enums, models, clock, Decimal calculations
     schemas/              Pydantic v2 request/response models
     repositories/         Protocol interfaces + postgres/ + mock/
@@ -430,7 +466,8 @@ backend/
 
 Python 3.12 · FastAPI · Uvicorn · Pydantic v2 · pydantic-settings ·
 SQLAlchemy 2.x (asyncio) · asyncpg · Alembic · PostgreSQL 16 + TimescaleDB ·
-httpx · pytest + pytest-asyncio · Ruff · mypy (`strict`). Times are
+httpx · websockets · pyotp · pytest + pytest-asyncio · Ruff · mypy
+(`strict`). Times are
 timezone-aware and centralised on `Asia/Kolkata` via `zoneinfo`; money is
 `Decimal` in Python and `NUMERIC` in the database, never `float`.
 
@@ -455,13 +492,16 @@ plain JSON number on the wire.
 | GET    | `/performance/calendar`    | One month of sessions (`?year=&month=`) |
 | GET    | `/performance/{date}`      | A specific session                      |
 | GET    | `/agent/status`            | Agent state — only `DISABLED` operative |
+| GET    | `/broker/status`           | Broker config and session state — no network call |
+| GET    | `/broker/connection-test`  | Authenticate and read the account profile |
 
 Interactive docs: `/docs` (Swagger), `/redoc`, `/openapi.json`.
 
 **There are deliberately no `/buy`, `/sell`, `/trade`, `/execute`, `/order` or
 `/exit-all` endpoints, and no `/predict`, `/ai-signal` or `/next-trade`.** The
 service cannot place an order or fabricate a prediction, because the routes to
-do so do not exist.
+do so do not exist. `POST /api/v1/broker/order` returns **404** — the path does
+not exist — rather than 405, and a test asserts that on every verb.
 
 ### Environment
 
@@ -478,10 +518,25 @@ Configuration is `pydantic-settings`; copy `backend/.env.example` to
 | `POSTGRES_DB/USER`    | `trading_agent`         |                                      |
 | `POSTGRES_PASSWORD`   | dev default             | `SecretStr`; masked when printed     |
 | `DB_HEALTH_TIMEOUT`   | `5.0`                   | Ceiling on the health `SELECT 1`     |
+| `ANGEL_ONE_ENABLED`   | `false`                 | Master switch for the broker         |
+| `ANGEL_ONE_API_KEY`   | —                       | `SecretStr`; optional, like all four |
+| `ANGEL_ONE_CLIENT_CODE` | —                     | Masked to `******56` in responses    |
+| `ANGEL_ONE_PIN`       | —                       | `SecretStr`; a string, PINs may start `0` |
+| `ANGEL_ONE_TOTP_SECRET` | —                     | `SecretStr`; the base32 **seed**, not a code |
+| `LIVE_TRADING_ENABLED`  | `false`               | Stated, not enforced — no order code exists |
+| `PAPER_TRADING_ENABLED` | `false`               | Likewise                             |
 
 The connection URL is assembled from these parts rather than read as a single
 DSN, because a URL in an environment variable is the classic way a password
 ends up in a shell history, a log line or a crash report.
+
+Every Angel One field is optional: the API boots, serves the whole dashboard
+and passes its suite with none of them set. A blank value reads as **absent**,
+not as an empty string, so a half-filled template reports "not configured"
+rather than sending a blank PIN to the broker and reporting "credentials
+rejected". No broker value may carry a `NEXT_PUBLIC_` prefix — anything under
+it is compiled into the JavaScript bundle. See
+[`docs/angel-one.md`](docs/angel-one.md#configuration).
 
 CORS is scoped to one explicit origin and to `GET, PUT, OPTIONS` only. Every
 response carries an `X-Request-ID`; logs include it for correlation and never
@@ -512,10 +567,11 @@ number that describes nothing.
 
 ```bash
 cd backend
-.venv/Scripts/python -m pytest                     # 153 tests
+.venv/Scripts/python -m pytest                     # 346 tests
+.venv/Scripts/python -m pytest tests/test_broker.py # broker only, 47 tests
 .venv/Scripts/python -m pytest tests/integration   # database only
 .venv/Scripts/python -m ruff check .
-.venv/Scripts/python -m mypy app tests             # strict, 78 files
+.venv/Scripts/python -m mypy app tests             # strict, 104 files
 ```
 
 API tests run in-process through `httpx.ASGITransport` — no socket, no port.
@@ -527,9 +583,17 @@ rather than failing. They never touch the development database.
 
 The 30-day denominator for the daily target is a simplification; the real
 figure is remaining NSE trading sessions, which needs an exchange holiday
-calendar. Account balance is still mock, deliberately — there is no broker to
-report funds, and persisting an invented balance would make it look settled.
-There is no authentication and no rate limiting.
+calendar. Account balance is still mock, deliberately — the broker adapter can
+read funds, but nothing wires that reading into `/account/summary`, and an
+endpoint that switched between invented and real figures without saying which
+it served would be worse than one that is consistently honest about being mock.
+There is no API authentication and no rate limiting, on this service or against
+Angel One's published per-endpoint limits.
+
+Nothing in the Angel One integration has been exercised against a live account.
+Values that the documentation and the official SDK disagree on, or are silent
+about, are marked `UNVERIFIED` in the source and listed in
+[`docs/angel-one.md`](docs/angel-one.md#known-limits-and-unverified-values).
 
 ### Roadmap — the trading pipeline
 
@@ -589,7 +653,59 @@ Two independent labels, answering different questions:
 So a seeded P&L arrives as `source: database` in the envelope while the row
 itself still says `development_seed` — invented data stays traceable even
 after it is persisted. The account endpoint reports `source: mock` **even with
-a database present**, because there is no broker and therefore no real balance.
+a database present, and even with a broker connected**, because no code path
+reads a balance from the broker into it. There is a test that configures a
+full credential set and asserts the account summary still says `mock`.
+
+---
+
+## Phase 3 — Angel One SmartAPI foundation
+
+A secure, tested, **read-only** broker foundation. Full reference, including
+every design decision and every unverified value:
+**[`docs/angel-one.md`](docs/angel-one.md)**. What was built, what was
+measured and what was deliberately left out:
+**[`docs/phase-3-report.md`](docs/phase-3-report.md)**.
+
+### What it adds
+
+- **`BrokerAdapter`** — a `typing.Protocol` with eleven methods: two for the
+  session, nine that read. None places, modifies or cancels anything.
+  A test double is a small class with the right shape rather than
+  a subclass dragging in real constructor behaviour, and `mypy` checks both
+  against the same contract
+- **Broker-neutral records** — frozen dataclasses, `Decimal` for every price
+  and Greek, `SecretStr` for every token, `None` meaning "the broker did not
+  say" and never zero
+- **An eight-way error taxonomy** organised by *what the operator should do*,
+  so "not configured" (409) never arrives dressed as "credentials rejected"
+- **TOTP authentication** with the seed confined to one module, session expiry
+  computed as the next IST midnight, an `asyncio.Lock` around the login path,
+  and exactly one retry on session expiry
+- **A historical-range planner** that splits a wide request into chunks Angel
+  One will accept, returning a list rather than a generator so a caller can see
+  "this is 340 requests" before issuing the first
+- **A SmartWebSocketV2 client** with replayed subscriptions, jittered bounded
+  reconnect, a 10-second heartbeat, and a binary tick decoder that converts
+  paise as `Decimal`
+- **`broker_account_snapshots`** — an append-only log of observations; tokens
+  are deliberately never stored
+- **`GET /broker/status`** and **`GET /broker/connection-test`**, plus a
+  dashboard card that states the read-only guarantee in words
+
+### The decisions worth knowing
+
+| Decision | Reason |
+| --- | --- |
+| No `place_order` anywhere | Not "not yet implemented" — not present. A method that exists but raises is still a method a future call site can find, and the only reliable guarantee is the absence of any code that could transmit an order. |
+| Not the official SDK | `smartapi-python` is synchronous `requests`, which blocks the whole event loop inside an async worker. Its constructor also resolves the machine's public IP and reads the host MAC before any call is made. |
+| `enabled`, `configured`, `connected` reported separately | They have different remedies. One boolean tells an operator something is wrong without telling them which thing. |
+| A blank credential reads as absent | `ANGEL_ONE_PIN=` in a copied template would otherwise report "configured", send a blank PIN, and come back as "credentials rejected" — the wrong diagnosis pointed at the wrong person. |
+| The connection test is a `GET` | The session is cached, so repeated calls are not repeated logins (there is a test). CORS allows `GET, PUT, OPTIONS`, and adding `POST` for one diagnostic would widen the write surface of the entire API. |
+| A lapsed session reports `connected: false` | Rather than a past `session_expires_at`. The badge must not assert a live connection on a credential the broker has already stopped accepting. |
+| Client code masked server-side | The browser is never given the full value to mask itself; anything the browser can render, the browser received. |
+| `order_placement_available` is `Literal[False]` | A payload claiming otherwise fails response validation. The frontend hard-codes it too rather than reading it through, so a server-side guarantee does not become a value a component renders on trust. |
+| No rate-limit error-code set | An earlier draft guessed five codes; three were wrong. A wrong classification sends a caller down a recovery path that cannot work, which is worse than having none. |
 
 ---
 
@@ -610,12 +726,25 @@ a database present**, because there is no broker and therefore no real balance.
 
 ## Verified
 
-**Backend** — 153 tests pass (unit + integration against a real TimescaleDB),
-`ruff check` and `ruff format --check` clean, `mypy --strict` clean across 78
-files. Verified against a live Uvicorn server, not only the test suite: OpenAPI
-schema, `PUT 15000 → 500`, `20000 → 667`, `10010 → 334`, `-5000 → 422` with the
-error envelope and no traceback, and a 404 probe confirming the order and
-prediction routes genuinely do not exist.
+**Backend** — 346 tests pass (unit + integration against a real TimescaleDB),
+`ruff check` and `ruff format --check` clean (107 files), `mypy --strict` clean
+across 104 files. Verified against a live Uvicorn server, not only the test
+suite: OpenAPI schema, `PUT 15000 → 500`, `20000 → 667`, `10010 → 334`,
+`-5000 → 422` with the error envelope and no traceback, and a 404 probe
+confirming the order and prediction routes genuinely do not exist.
+
+**Broker (Phase 3)** — 47 of those tests cover the Angel One layer, every one
+of them against a mocked transport; nothing in this repository has been run
+against a live Angel One account. `GET /api/v1/broker/status` was probed on the
+running server and reported `enabled: false, configured: false, connected:
+false`. A blank credential (`ANGEL_ONE_PIN=`) was confirmed to read as *absent*
+rather than as an empty PIN, so a half-filled `.env` reports "not configured"
+instead of "credentials rejected". A grep of the built bundle (`.next/static`,
+`.next/server`) for any Angel One credential name returns nothing; the only
+`NEXT_PUBLIC_` variable in the project is `NEXT_PUBLIC_API_BASE_URL`. The
+backend declares no `POST`, `PATCH` or `DELETE` route anywhere —
+`grep -rn "@router\.\(post\|delete\|patch\)" app/` is empty, and the single
+`PUT` in the application is the monthly target. Both broker routes are `GET`.
 
 **Database**, verified against the running stack rather than assumed:
 

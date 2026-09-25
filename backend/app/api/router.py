@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import account, agent, calendar, health, performance, targets
+from app.api.v1 import account, agent, broker, calendar, health, performance, targets
 
 api_router = APIRouter()
 
@@ -20,3 +20,4 @@ api_router.include_router(targets.router)
 api_router.include_router(calendar.router)
 api_router.include_router(performance.router)
 api_router.include_router(agent.router)
+api_router.include_router(broker.router)

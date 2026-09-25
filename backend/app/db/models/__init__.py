@@ -8,6 +8,7 @@ migration that silently forgets a table.
 
 from __future__ import annotations
 
+from app.db.models.broker_account import BrokerAccountSnapshot
 from app.db.models.daily_performance import DailyPerformance
 from app.db.models.instrument import MarketInstrument
 from app.db.models.market_data import IndiaVix, OhlcvCandle
@@ -17,6 +18,7 @@ from app.db.models.trading import Execution, Order, Position, Trade, TradeJourna
 from app.db.models.trading_session import TradingSession
 
 __all__ = [
+    "BrokerAccountSnapshot",
     "DailyPerformance",
     "Execution",
     "IndiaVix",

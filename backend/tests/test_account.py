@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 
-from httpx import AsyncClient
+from app.main import create_app
+from httpx import ASGITransport, AsyncClient
+
+from tests.brokers.conftest import broker_settings
 
 
 async def test_account_summary(client: AsyncClient, api: str) -> None:
@@ -53,6 +56,28 @@ async def test_source_is_declared(client: AsyncClient, api: str) -> None:
     """Mock capital must never be presentable as a real balance."""
     payload = (await client.get(f"{api}/account/summary")).json()
     assert payload["source"] == "mock"
+
+
+async def test_source_stays_mock_even_when_a_broker_is_configured() -> None:
+    """A connectable broker must not make an invented figure look real.
+
+    This is the failure mode Phase 3 newly makes possible. Credentials are now
+    present and the integration is enabled, so a reader — or a dashboard — could
+    reasonably assume the balance below came from Angel One. It did not: there is
+    no broker-backed account repository, `get_account_repository` returns the
+    mock unconditionally, and 25000.00 is a literal in a module.
+
+    The assertion is that `source` keeps saying so. If a later phase wires the
+    funds call through without also wiring provenance, this fails rather than
+    silently relabelling demonstration data as a settled account balance.
+    """
+    app = create_app(broker_settings())
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        payload = (await client.get("/api/v1/account/summary")).json()
+
+    assert payload["source"] == "mock"
+    assert payload["total_capital"] == 25000.00
 
 
 async def test_balance_is_read_only(client: AsyncClient, api: str) -> None:

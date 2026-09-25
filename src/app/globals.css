@@ -46,6 +46,16 @@
     0 10px 28px -16px rgba(30, 26, 22, 0.14);
   --shadow-card-hover: 0 1px 2px rgba(30, 26, 22, 0.04),
     0 16px 36px -18px rgba(30, 26, 22, 0.2);
+
+  /* Glass: a 20% fill over a fully blurred backdrop. See `.glass-panel`. */
+  --glass-fill: rgba(255, 255, 255, 0.2);
+  --glass-hairline: rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 1px 2px rgba(30, 26, 22, 0.04),
+    0 18px 44px -20px rgba(30, 26, 22, 0.26);
+  /* The opaque stand-in for browsers with no `backdrop-filter`. Matches the
+     blurred result's apparent lightness rather than the 20% fill, which alone
+     would leave text sitting on whatever happens to be behind it. */
+  --glass-fallback: rgba(255, 252, 249, 0.94);
 }
 
 .dark {
@@ -83,6 +93,15 @@
     0 12px 30px -18px rgba(0, 0, 0, 0.6);
   --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.35),
     0 18px 40px -20px rgba(0, 0, 0, 0.75);
+
+  /* Dark glass is a *dark* 20% fill, not a white one. A white tint over the
+     #1D1D1D canvas reads as fog rather than glass, and lifts the panel's
+     lightness far enough to drop `--ink` text below 4.5:1. */
+  --glass-fill: rgba(20, 20, 20, 0.2);
+  --glass-hairline: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 1px 2px rgba(0, 0, 0, 0.35),
+    0 20px 48px -22px rgba(0, 0, 0, 0.8);
+  --glass-fallback: rgba(38, 38, 38, 0.95);
 }
 
 @theme inline {
@@ -109,6 +128,9 @@
   --color-caution-soft: var(--caution-soft);
   --color-idle: var(--idle);
   --color-track: var(--track);
+  --color-glass-hairline: var(--glass-hairline);
+
+  --shadow-glass: var(--glass-shadow);
 
   --radius-card: 18px;
   --radius-inner: 12px;
@@ -149,6 +171,48 @@ body {
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+/*
+ * Glass surface for floating and hover-revealed UI: popovers, tooltips and the
+ * cards that sit above the dashboard rather than in its grid.
+ *
+ * TWENTY PERCENT FILL, FULLY BLURRED BACKDROP
+ * -------------------------------------------
+ * The fill is `--glass-fill` at alpha 0.20 and the backdrop is blurred hard.
+ * Those two numbers are a pair, and the blur is not decoration: a 20% fill on
+ * its own leaves text sitting on whatever happens to be behind the panel, which
+ * is unreadable over a calendar grid and fails WCAG against an unknown backdrop.
+ * Blurring first destroys the high-frequency detail, so what remains under the
+ * fill is a smooth local average — which a 20% tint *can* reliably shift.
+ *
+ * 32px is where the blur saturates. Past roughly this radius the backdrop is
+ * already an even wash at every panel size used here, and larger values cost
+ * compositor time for no visible change.
+ *
+ * `saturate` compensates for the colour that heavy blurring drains away;
+ * without it the glass reads as grey film rather than glass.
+ *
+ * WHY THE FALLBACK IS NEARLY OPAQUE
+ * ---------------------------------
+ * `backdrop-filter` is what makes the 20% fill legible, so where it is missing
+ * the fill cannot be kept — there is nothing averaging the backdrop, and the
+ * result is text over arbitrary content. The `@supports` block therefore trades
+ * the effect away entirely rather than degrading it: an opaque panel is a
+ * lesser design and a readable one.
+ */
+.glass-panel {
+  background-color: var(--glass-fill);
+  border: 1px solid var(--glass-hairline);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  backdrop-filter: blur(32px) saturate(180%);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel {
+    background-color: var(--glass-fallback);
+  }
 }
 
 .focus-ring {

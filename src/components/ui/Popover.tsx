@@ -45,8 +45,11 @@ export function PopoverPanel({
         collisionPadding={12}
         aria-label={title}
         className={cn(
-          "z-50 w-[min(21rem,calc(100vw-1.5rem))] rounded-card border border-hairline",
-          "bg-canvas-raised p-4 shadow-card outline-none",
+          // `glass-panel` carries its own border and shadow, so neither is
+          // repeated here — a `border-hairline` on top would draw a second
+          // edge just inside the glass one.
+          "glass-panel z-50 w-[min(21rem,calc(100vw-1.5rem))] rounded-card",
+          "p-4 text-ink outline-none",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           className,
         )}
@@ -61,11 +64,14 @@ export function PopoverPanel({
         >
           <X aria-hidden="true" className="size-3.5" />
         </PopoverPrimitive.Close>
-        <PopoverPrimitive.Arrow
-          className="fill-canvas-raised stroke-hairline"
-          width={12}
-          height={6}
-        />
+        {/*
+          No arrow, deliberately. An SVG arrow cannot inherit the panel's
+          `backdrop-filter` — it would render as an opaque triangle pinned to a
+          translucent panel, and no fixed fill can match it, because the glass
+          takes its apparent colour from whatever is behind it. The `sideOffset`
+          and the trigger's `aria-controls` pair already establish the
+          relationship, for sighted and assistive users respectively.
+        */}
       </PopoverPrimitive.Content>
     </PopoverPrimitive.Portal>
   );

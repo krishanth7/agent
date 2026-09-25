@@ -40,13 +40,22 @@ export function Tooltip({
           sideOffset={6}
           collisionPadding={10}
           className={cn(
-            "z-50 max-w-[15rem] rounded-lg bg-ink px-2.5 py-1.5 text-xs font-medium text-canvas shadow-card",
+            // Glass rather than the former inverted solid. The text colour has
+            // to flip with it: `text-canvas` was legible only because the fill
+            // was `bg-ink`, and over glass it would be near-invisible.
+            //
+            // `font-semibold` rather than `font-medium` because this is the
+            // smallest text in the app and the highest-risk contrast case on a
+            // translucent surface — weight is the cheapest way to buy back
+            // legibility without growing the tooltip.
+            "glass-panel z-50 max-w-[15rem] rounded-lg px-2.5 py-1.5",
+            "text-xs font-semibold text-ink",
             "data-[state=delayed-open]:animate-in data-[state=closed]:animate-out",
             className,
           )}
         >
           {label}
-          <TooltipPrimitive.Arrow className="fill-ink" width={10} height={5} />
+          {/* No arrow — see `PopoverPanel` for why glass cannot have one. */}
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>

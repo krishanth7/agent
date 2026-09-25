@@ -10,8 +10,23 @@
 
 import type { DailyTargetStatus } from "@/types/trading";
 
-/** Provenance flag the backend stamps on every payload it derives from mocks. */
-export type DataSource = "mock" | "database" | "broker" | "simulation";
+/**
+ * Provenance flag the backend stamps on every payload.
+ *
+ * Mirrors `app.domain.enums.DataSource` in full, including the members the UI
+ * does not yet render. An incomplete union here would be worse than useless:
+ * TypeScript would narrow an unlisted value to `never` at a `switch`, so the
+ * one source most important to distinguish — a development seed row arriving
+ * where a broker reading was expected — would be the one the compiler assumed
+ * could not happen.
+ */
+export type DataSource =
+  | "mock"
+  | "database"
+  | "broker"
+  | "simulation"
+  | "development_seed"
+  | "nse";
 
 /** Backend spelling of the status enum. Hyphenated on the frontend. */
 export type WireDailyTargetStatus =
@@ -81,6 +96,36 @@ export interface WireCalendar {
   year: number;
   month: number;
   days: WireCalendarDay[];
+}
+
+/**
+ * Broker connection state.
+ *
+ * Note what is absent and must stay absent: no access token, refresh token,
+ * feed token, API key, PIN or TOTP seed. `client_code` arrives already masked
+ * by the backend — the frontend must never be given the full value to mask
+ * itself, because anything the browser can render, the browser received.
+ */
+export interface WireBrokerStatus {
+  broker: string;
+  enabled: boolean;
+  configured: boolean;
+  connected: boolean;
+  client_code: string | null;
+  session_expires_at: string | null;
+  live_trading_enabled: boolean;
+  paper_trading_enabled: boolean;
+  order_placement_available: false;
+}
+
+export interface WireBrokerConnectionTest {
+  broker: string;
+  connected: true;
+  client_code: string;
+  client_name: string | null;
+  exchanges: string[];
+  session_expires_at: string;
+  checked_at: string;
 }
 
 export interface WireAgentStatus {

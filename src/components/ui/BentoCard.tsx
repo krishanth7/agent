@@ -5,11 +5,18 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-type BentoCardVariant = "primary" | "secondary";
+type BentoCardVariant = "primary" | "secondary" | "glass";
 
+/**
+ * `glass` brings its own border and shadow, so it also cancels the border the
+ * base class sets — `border-transparent` rather than omitting it, because the
+ * 1px still has to occupy layout or the glass variant would sit a pixel wider
+ * than its neighbours in the same grid row.
+ */
 const VARIANT_STYLES: Record<BentoCardVariant, string> = {
-  primary: "bg-surface shadow-card",
-  secondary: "bg-surface-muted shadow-card",
+  primary: "border-hairline bg-surface shadow-card",
+  secondary: "border-hairline bg-surface-muted shadow-card",
+  glass: "glass-panel border-transparent",
 };
 
 export interface BentoCardProps {
@@ -40,7 +47,7 @@ export function BentoCard({
         ease: [0.22, 0.61, 0.36, 1],
       }}
       className={cn(
-        "relative flex flex-col rounded-card border border-hairline p-5",
+        "relative flex flex-col rounded-card border p-5",
         "transition-[box-shadow,background-color,border-color] duration-200 hover:shadow-card-hover",
         VARIANT_STYLES[variant],
         className,
